@@ -1,0 +1,60 @@
+{
+  "manifest": "benchmarks\\release_97_gate_manifest.json",
+  "runs": [
+    {
+      "id": "3090_corrected_release_gate_rerun",
+      "label": "3090 corrected release gate rerun",
+      "run_dir": "artifacts/ocr97_3090_longform/corrected_release_gate_rerun",
+      "broad_variants": "clean,mild_degraded,low_contrast",
+      "focus_variants": "rotated,noisy_scan,small_text,blurred",
+      "focus_limit": 48,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-08T01:52:49Z",
+      "summary_path": "artifacts\\ocr97_3090_longform\\corrected_release_gate_rerun\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-08T02:54:34Z"
+    },
+    {
+      "id": "3090_table_field_consensus_stress",
+      "label": "3090 table and field consensus stress",
+      "run_dir": "artifacts/ocr97_3090_longform/table_field_consensus_stress",
+      "focus_ids": "invoice_line_items,brokerage_activity,purchase_order,bank_statement_monthly,credit_card_statement,insurance_eob,shipping_manifest,bill_of_lading",
+      "broad_variants": "clean",
+      "focus_variants": "clean,low_contrast,small_text,noisy_scan",
+      "focus_limit": 64,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-08T02:54:34Z",
+      "summary_path": "artifacts\\ocr97_3090_longform\\table_field_consensus_stress\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-08T03:54:45Z"
+    },
+    {
+      "id": "3090_hard_image_stress",
+      "label": "3090 hard image stress",
+      "run_dir": "artifacts/ocr97_3090_longform/hard_image_stress",
+      "broad_variants": "rotated,noisy_scan,blurred,small_text,low_contrast",
+      "focus_variants": "rotated,noisy_scan,blurred,small_text,low_contrast",
+      "focus_limit": 80,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-08T03:54:45Z",
+      "summary_path": "artifacts\\ocr97_3090_longform\\hard_image_stress\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-08T05:06:10Z"
+    },
+    {
+      "id": "3090_gpu_escalation_proxy",
+      "label": "3090 GPU escalation proxy and low-confidence review",
+      "run_dir": "artifacts/ocr97_3090_longform/gpu_escalation_proxy",
+      "focus_ids": "invoice_line_items,brokerage_activity,insurance_eob,id_card_scan,court_notice,government_permit,maintenance_work_order",
+      "broad_variants": "clean,low_contrast",
+      "focus_variants": "rotated,noisy_scan,blurred,small_text",
+      "focus_limit": 56,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-08T05:06:10Z",
+      "summary_path": "artifacts\\ocr97_3090_longform\\gpu_escalation_proxy\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-08T06:05:30Z"
+    }
+  ],
+  "updated_at": "2026-05-08T06:05:30Z"
+}

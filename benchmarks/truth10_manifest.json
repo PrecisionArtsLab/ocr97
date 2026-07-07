@@ -1,0 +1,118 @@
+{
+  "name": "ocr97_truth10_field_benchmark",
+  "description": "Small deterministic field-level OCR benchmark for finance and business documents.",
+  "cases": [
+    {
+      "id": "digital_balance_sheet",
+      "label": "Digital balance sheet",
+      "required_tokens": ["Assets", "Liabilities", "Equity"],
+      "expected_table_rows": 3,
+      "expected_fields": [
+        {"name": "assets", "aliases": ["Assets"], "expected": "184250", "type": "money"},
+        {"name": "liabilities", "aliases": ["Liabilities"], "expected": "74200", "type": "money"},
+        {"name": "equity", "aliases": ["Equity"], "expected": "110050", "type": "money"}
+      ],
+      "sample_text": "| Metric | Amount |\n| Assets | $184,250 |\n| Liabilities | $74,200 |\n| Equity | $110,050 |"
+    },
+    {
+      "id": "invoice_summary",
+      "label": "Invoice summary",
+      "required_tokens": ["Invoice", "Subtotal", "Total"],
+      "expected_fields": [
+        {"name": "invoice_number", "aliases": ["Invoice"], "expected": "INV 2048", "type": "text"},
+        {"name": "subtotal", "aliases": ["Subtotal"], "expected": "1280.00", "type": "money"},
+        {"name": "total", "aliases": ["Total"], "expected": "1382.40", "type": "money"}
+      ],
+      "sample_text": "Invoice: INV 2048\nSubtotal: $1,280.00\nTax: $102.40\nTotal: $1,382.40"
+    },
+    {
+      "id": "bank_statement",
+      "label": "Bank statement",
+      "required_tokens": ["Opening Balance", "Deposits", "Closing Balance"],
+      "expected_fields": [
+        {"name": "opening_balance", "aliases": ["Opening Balance"], "expected": "4200.15", "type": "money"},
+        {"name": "deposits", "aliases": ["Deposits"], "expected": "2150.00", "type": "money"},
+        {"name": "closing_balance", "aliases": ["Closing Balance"], "expected": "5975.42", "type": "money"}
+      ],
+      "sample_text": "Opening Balance: $4,200.15\nDeposits: $2,150.00\nWithdrawals: $374.73\nClosing Balance: $5,975.42"
+    },
+    {
+      "id": "brokerage_positions",
+      "label": "Brokerage positions",
+      "required_tokens": ["Ticker", "Shares", "Market Value"],
+      "expected_table_rows": 4,
+      "expected_fields": [
+        {"name": "cash", "aliases": ["Cash"], "expected": "8500.00", "type": "money"},
+        {"name": "equity", "aliases": ["Equity"], "expected": "61300.00", "type": "money"},
+        {"name": "market_value", "aliases": ["Market Value"], "expected": "69800.00", "type": "money"}
+      ],
+      "sample_text": "| Ticker | Shares | Market Value |\n| CASH | 1 | $8,500.00 |\n| SPY | 120 | $51,000.00 |\n| QQQ | 30 | $10,300.00 |\nCash: $8,500.00\nEquity: $61,300.00\nMarket Value: $69,800.00"
+    },
+    {
+      "id": "receipt",
+      "label": "Retail receipt",
+      "required_tokens": ["Receipt", "Tax", "Total"],
+      "expected_fields": [
+        {"name": "date", "aliases": ["Date"], "expected": "2026-04-24", "type": "date"},
+        {"name": "tax", "aliases": ["Tax"], "expected": "3.62", "type": "money"},
+        {"name": "total", "aliases": ["Total"], "expected": "48.62", "type": "money"}
+      ],
+      "sample_text": "Receipt\nDate: 2026-04-24\nItems: $45.00\nTax: $3.62\nTotal: $48.62"
+    },
+    {
+      "id": "payroll_stub",
+      "label": "Payroll stub",
+      "required_tokens": ["Gross Pay", "Deductions", "Net Pay"],
+      "expected_fields": [
+        {"name": "gross_pay", "aliases": ["Gross Pay"], "expected": "3200.00", "type": "money"},
+        {"name": "deductions", "aliases": ["Deductions"], "expected": "812.50", "type": "money"},
+        {"name": "net_pay", "aliases": ["Net Pay"], "expected": "2387.50", "type": "money"}
+      ],
+      "sample_text": "Gross Pay: $3,200.00\nDeductions: $812.50\nNet Pay: $2,387.50"
+    },
+    {
+      "id": "tax_summary",
+      "label": "Tax summary",
+      "required_tokens": ["Adjusted Gross Income", "Taxable Income", "Tax Due"],
+      "expected_fields": [
+        {"name": "agi", "aliases": ["Adjusted Gross Income"], "expected": "84500", "type": "money"},
+        {"name": "taxable_income", "aliases": ["Taxable Income"], "expected": "70200", "type": "money"},
+        {"name": "tax_due", "aliases": ["Tax Due"], "expected": "9180", "type": "money"}
+      ],
+      "sample_text": "Adjusted Gross Income: $84,500\nTaxable Income: $70,200\nTax Due: $9,180"
+    },
+    {
+      "id": "utility_bill",
+      "label": "Utility bill",
+      "required_tokens": ["Account", "Due Date", "Amount Due"],
+      "expected_fields": [
+        {"name": "account", "aliases": ["Account"], "expected": "A 7741", "type": "text"},
+        {"name": "due_date", "aliases": ["Due Date"], "expected": "2026-05-15", "type": "date"},
+        {"name": "amount_due", "aliases": ["Amount Due"], "expected": "216.73", "type": "money"}
+      ],
+      "sample_text": "Account: A 7741\nDue Date: 2026-05-15\nAmount Due: $216.73"
+    },
+    {
+      "id": "margin_report",
+      "label": "Margin report",
+      "required_tokens": ["Revenue", "Cost", "Margin"],
+      "expected_fields": [
+        {"name": "revenue", "aliases": ["Revenue"], "expected": "220000", "type": "money"},
+        {"name": "cost", "aliases": ["Cost"], "expected": "179520", "type": "money"},
+        {"name": "margin", "aliases": ["Margin"], "expected": "18.4", "type": "percent"}
+      ],
+      "sample_text": "Revenue: $220,000\nCost: $179,520\nMargin: 18.4%"
+    },
+    {
+      "id": "loan_statement",
+      "label": "Loan statement",
+      "required_tokens": ["Principal", "Interest Rate", "Payment Due"],
+      "expected_fields": [
+        {"name": "principal", "aliases": ["Principal"], "expected": "152300.25", "type": "money"},
+        {"name": "interest_rate", "aliases": ["Interest Rate"], "expected": "6.75", "type": "percent"},
+        {"name": "payment_due", "aliases": ["Payment Due"], "expected": "1488.90", "type": "money"}
+      ],
+      "sample_text": "Principal: $152,300.25\nInterest Rate: 6.75%\nPayment Due: $1,488.90"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "manifest": "benchmarks\\release_97_gate_manifest.json",
+  "runs": [
+    {
+      "id": "release_broad_120_case_gate",
+      "label": "Release 97 broad 120-case gate",
+      "run_dir": "artifacts/release_97_gate/broad_120_case_gate",
+      "broad_variants": "clean,mild_degraded,low_contrast",
+      "focus_variants": "rotated,noisy_scan",
+      "focus_limit": 24,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-11T19:05:48Z",
+      "summary_path": "artifacts\\release_97_gate\\broad_120_case_gate\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-11T19:44:30Z"
+    },
+    {
+      "id": "release_table_dense_focus_gate",
+      "label": "Release 97 table dense focus gate",
+      "run_dir": "artifacts/release_97_gate/table_dense_focus_gate",
+      "focus_ids": "invoice_line_items_table_first,brokerage_activity_table_first,vendor_invoice_services_table_first,purchase_order_table_first",
+      "broad_variants": "clean",
+      "focus_variants": "rotated,noisy_scan,small_text",
+      "focus_limit": 12,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-11T19:44:30Z",
+      "summary_path": "artifacts\\release_97_gate\\table_dense_focus_gate\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-11T19:58:59Z"
+    },
+    {
+      "id": "release_rotated_noisy_stress_gate",
+      "label": "Release 97 rotated and noisy stress gate",
+      "run_dir": "artifacts/release_97_gate/rotated_noisy_stress_gate",
+      "broad_variants": "rotated,noisy_scan",
+      "focus_variants": "rotated,noisy_scan",
+      "focus_limit": 40,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-11T19:58:59Z",
+      "summary_path": "artifacts\\release_97_gate\\rotated_noisy_stress_gate\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-11T20:49:08Z"
+    }
+  ],
+  "updated_at": "2026-05-11T20:49:08Z"
+}

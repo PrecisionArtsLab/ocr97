@@ -1,0 +1,16 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include constraints-ocr.txt
+include requirements-ocr.txt
+recursive-include benchmarks *.json
+recursive-include tests *.py
+recursive-include examples *.py
+recursive-include tools *.py
+recursive-include tools *.ps1
+exclude .env
+recursive-exclude * __pycache__
+recursive-exclude * *.py[cod]
+recursive-exclude * .pytest_cache
+recursive-exclude * _tmp
+recursive-exclude * *.log

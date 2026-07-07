@@ -1,0 +1,248 @@
+{
+  "name": "ocr97_mixed_corpus_field_benchmark",
+  "description": "Deterministic mixed-document OCR benchmark covering business, finance, healthcare-style, legal, logistics, and identity-adjacent forms.",
+  "cases": [
+    {
+      "id": "vendor_invoice_services",
+      "label": "Vendor services invoice",
+      "category": "invoice",
+      "required_tokens": ["Invoice", "PO Number", "Amount Due"],
+      "expected_fields": [
+        {"name": "invoice_number", "aliases": ["Invoice"], "expected": "INV 73019", "type": "text"},
+        {"name": "po_number", "aliases": ["PO Number"], "expected": "PO 4482", "type": "text"},
+        {"name": "amount_due", "aliases": ["Amount Due"], "expected": "2481.37", "type": "money"}
+      ],
+      "sample_text": "Invoice: INV 73019\nPO Number: PO 4482\nService Period: 2026-03-01 to 2026-03-31\nSubtotal: $2,298.50\nTax: $182.87\nAmount Due: $2,481.37"
+    },
+    {
+      "id": "invoice_line_items",
+      "label": "Invoice with line items",
+      "category": "invoice",
+      "required_tokens": ["SKU", "Quantity", "Line Total"],
+      "expected_table_rows": 4,
+      "expected_fields": [
+        {"name": "invoice_number", "aliases": ["Invoice"], "expected": "INV 88411", "type": "text"},
+        {"name": "subtotal", "aliases": ["Subtotal"], "expected": "1686.20", "type": "money"},
+        {"name": "total", "aliases": ["Total"], "expected": "1812.67", "type": "money"}
+      ],
+      "sample_text": "Invoice: INV 88411\n| SKU | Quantity | Line Total |\n| CAB-22 | 4 | $488.00 |\n| BRK-17 | 9 | $711.00 |\n| LAB-02 | 3 | $487.20 |\nSubtotal: $1,686.20\nTax: $126.47\nTotal: $1,812.67"
+    },
+    {
+      "id": "purchase_order",
+      "label": "Purchase order",
+      "category": "procurement",
+      "required_tokens": ["Purchase Order", "Vendor", "Authorized Total"],
+      "expected_fields": [
+        {"name": "po_number", "aliases": ["Purchase Order"], "expected": "PO 108774", "type": "text"},
+        {"name": "vendor", "aliases": ["Vendor"], "expected": "North Ridge Supply", "type": "text"},
+        {"name": "authorized_total", "aliases": ["Authorized Total"], "expected": "9450.00", "type": "money"}
+      ],
+      "sample_text": "Purchase Order: PO 108774\nVendor: North Ridge Supply\nDepartment: Facilities\nAuthorized Total: $9,450.00"
+    },
+    {
+      "id": "bank_statement_monthly",
+      "label": "Monthly bank statement",
+      "category": "banking",
+      "required_tokens": ["Opening Balance", "Deposits", "Closing Balance"],
+      "expected_fields": [
+        {"name": "opening_balance", "aliases": ["Opening Balance"], "expected": "12502.18", "type": "money"},
+        {"name": "deposits", "aliases": ["Deposits"], "expected": "8430.92", "type": "money"},
+        {"name": "closing_balance", "aliases": ["Closing Balance"], "expected": "17881.44", "type": "money"}
+      ],
+      "sample_text": "Opening Balance: $12,502.18\nDeposits: $8,430.92\nWithdrawals: $3,051.66\nClosing Balance: $17,881.44"
+    },
+    {
+      "id": "credit_card_statement",
+      "label": "Credit card statement",
+      "category": "banking",
+      "required_tokens": ["Previous Balance", "Minimum Payment", "Payment Due Date"],
+      "expected_fields": [
+        {"name": "previous_balance", "aliases": ["Previous Balance"], "expected": "3842.90", "type": "money"},
+        {"name": "minimum_payment", "aliases": ["Minimum Payment"], "expected": "121.00", "type": "money"},
+        {"name": "payment_due_date", "aliases": ["Payment Due Date"], "expected": "2026-05-18", "type": "date"}
+      ],
+      "sample_text": "Previous Balance: $3,842.90\nPayments: $750.00\nPurchases: $418.20\nMinimum Payment: $121.00\nPayment Due Date: 2026-05-18"
+    },
+    {
+      "id": "brokerage_activity",
+      "label": "Brokerage activity summary",
+      "category": "brokerage",
+      "required_tokens": ["Ticker", "Quantity", "Net Amount"],
+      "expected_table_rows": 4,
+      "expected_fields": [
+        {"name": "account_value", "aliases": ["Account Value"], "expected": "143208.44", "type": "money"},
+        {"name": "cash_balance", "aliases": ["Cash Balance"], "expected": "11804.55", "type": "money"},
+        {"name": "net_amount", "aliases": ["Net Amount"], "expected": "5320.25", "type": "money"}
+      ],
+      "sample_text": "Account Value: $143,208.44\nCash Balance: $11,804.55\n| Ticker | Quantity | Net Amount |\n| VTI | 18 | $4,012.20 |\n| VXUS | 21 | $1,308.05 |\nNet Amount: $5,320.25"
+    },
+    {
+      "id": "payroll_earnings",
+      "label": "Payroll earnings statement",
+      "category": "payroll",
+      "required_tokens": ["Gross Pay", "Federal Tax", "Net Pay"],
+      "expected_fields": [
+        {"name": "gross_pay", "aliases": ["Gross Pay"], "expected": "4280.00", "type": "money"},
+        {"name": "federal_tax", "aliases": ["Federal Tax"], "expected": "612.48", "type": "money"},
+        {"name": "net_pay", "aliases": ["Net Pay"], "expected": "3021.17", "type": "money"}
+      ],
+      "sample_text": "Gross Pay: $4,280.00\nFederal Tax: $612.48\nBenefits: $404.35\nNet Pay: $3,021.17"
+    },
+    {
+      "id": "tax_1099_summary",
+      "label": "1099 summary",
+      "category": "tax",
+      "required_tokens": ["Payer", "Recipient", "Nonemployee Compensation"],
+      "expected_fields": [
+        {"name": "payer", "aliases": ["Payer"], "expected": "Blue Pine Analytics", "type": "text"},
+        {"name": "recipient", "aliases": ["Recipient"], "expected": "Jordan Lee", "type": "text"},
+        {"name": "compensation", "aliases": ["Nonemployee Compensation"], "expected": "18450.00", "type": "money"}
+      ],
+      "sample_text": "Payer: Blue Pine Analytics\nRecipient: Jordan Lee\nNonemployee Compensation: $18,450.00\nFederal Tax Withheld: $0.00"
+    },
+    {
+      "id": "mortgage_statement",
+      "label": "Mortgage statement",
+      "category": "loan",
+      "required_tokens": ["Principal Balance", "Interest Rate", "Payment Due"],
+      "expected_fields": [
+        {"name": "principal_balance", "aliases": ["Principal Balance"], "expected": "286902.44", "type": "money"},
+        {"name": "interest_rate", "aliases": ["Interest Rate"], "expected": "5.875", "type": "percent"},
+        {"name": "payment_due", "aliases": ["Payment Due"], "expected": "2218.36", "type": "money"}
+      ],
+      "sample_text": "Principal Balance: $286,902.44\nInterest Rate: 5.875%\nEscrow: $511.20\nPayment Due: $2,218.36"
+    },
+    {
+      "id": "utility_energy_bill",
+      "label": "Energy utility bill",
+      "category": "utility",
+      "required_tokens": ["Meter Number", "Due Date", "Amount Due"],
+      "expected_fields": [
+        {"name": "meter_number", "aliases": ["Meter Number"], "expected": "MTR 991204", "type": "text"},
+        {"name": "due_date", "aliases": ["Due Date"], "expected": "2026-05-22", "type": "date"},
+        {"name": "amount_due", "aliases": ["Amount Due"], "expected": "312.58", "type": "money"}
+      ],
+      "sample_text": "Meter Number: MTR 991204\nService Address: 1408 Walnut Street\nDue Date: 2026-05-22\nAmount Due: $312.58"
+    },
+    {
+      "id": "insurance_eob",
+      "label": "Insurance explanation of benefits",
+      "category": "insurance",
+      "required_tokens": ["Claim Number", "Provider", "Patient Responsibility"],
+      "expected_fields": [
+        {"name": "claim_number", "aliases": ["Claim Number"], "expected": "CLM 550812", "type": "text"},
+        {"name": "allowed_amount", "aliases": ["Allowed Amount"], "expected": "426.00", "type": "money"},
+        {"name": "patient_responsibility", "aliases": ["Patient Responsibility"], "expected": "74.20", "type": "money"}
+      ],
+      "sample_text": "Claim Number: CLM 550812\nProvider: River City Clinic\nAllowed Amount: $426.00\nPlan Paid: $351.80\nPatient Responsibility: $74.20"
+    },
+    {
+      "id": "medical_lab_invoice",
+      "label": "Medical lab invoice",
+      "category": "healthcare",
+      "required_tokens": ["Patient ID", "Specimen Date", "Balance Due"],
+      "expected_fields": [
+        {"name": "patient_id", "aliases": ["Patient ID"], "expected": "PT 20417", "type": "text"},
+        {"name": "specimen_date", "aliases": ["Specimen Date"], "expected": "2026-04-03", "type": "date"},
+        {"name": "balance_due", "aliases": ["Balance Due"], "expected": "38.50", "type": "money"}
+      ],
+      "sample_text": "Patient ID: PT 20417\nSpecimen Date: 2026-04-03\nTest Panel: Metabolic Screen\nBalance Due: $38.50"
+    },
+    {
+      "id": "shipping_manifest",
+      "label": "Shipping manifest",
+      "category": "logistics",
+      "required_tokens": ["Tracking Number", "Weight", "Declared Value"],
+      "expected_fields": [
+        {"name": "tracking_number", "aliases": ["Tracking Number"], "expected": "1Z 842 771 03", "type": "text"},
+        {"name": "weight", "aliases": ["Weight"], "expected": "18.4", "type": "number"},
+        {"name": "declared_value", "aliases": ["Declared Value"], "expected": "640.00", "type": "money"}
+      ],
+      "sample_text": "Tracking Number: 1Z 842 771 03\nWeight: 18.4\nDestination Zone: 6\nDeclared Value: $640.00"
+    },
+    {
+      "id": "bill_of_lading",
+      "label": "Bill of lading",
+      "category": "logistics",
+      "required_tokens": ["BOL Number", "Carrier", "Freight Charges"],
+      "expected_fields": [
+        {"name": "bol_number", "aliases": ["BOL Number"], "expected": "BOL 774209", "type": "text"},
+        {"name": "carrier", "aliases": ["Carrier"], "expected": "Lakeside Freight", "type": "text"},
+        {"name": "freight_charges", "aliases": ["Freight Charges"], "expected": "1288.75", "type": "money"}
+      ],
+      "sample_text": "BOL Number: BOL 774209\nCarrier: Lakeside Freight\nPallet Count: 14\nFreight Charges: $1,288.75"
+    },
+    {
+      "id": "rental_lease_summary",
+      "label": "Lease summary",
+      "category": "legal",
+      "required_tokens": ["Lease Start", "Monthly Rent", "Security Deposit"],
+      "expected_fields": [
+        {"name": "lease_start", "aliases": ["Lease Start"], "expected": "2026-06-01", "type": "date"},
+        {"name": "monthly_rent", "aliases": ["Monthly Rent"], "expected": "1850.00", "type": "money"},
+        {"name": "security_deposit", "aliases": ["Security Deposit"], "expected": "1850.00", "type": "money"}
+      ],
+      "sample_text": "Lease Start: 2026-06-01\nTerm: 12 months\nMonthly Rent: $1,850.00\nSecurity Deposit: $1,850.00"
+    },
+    {
+      "id": "court_notice",
+      "label": "Court notice",
+      "category": "legal",
+      "required_tokens": ["Case Number", "Hearing Date", "Filing Fee"],
+      "expected_fields": [
+        {"name": "case_number", "aliases": ["Case Number"], "expected": "CV 2026 11482", "type": "text"},
+        {"name": "hearing_date", "aliases": ["Hearing Date"], "expected": "2026-07-09", "type": "date"},
+        {"name": "filing_fee", "aliases": ["Filing Fee"], "expected": "214.00", "type": "money"}
+      ],
+      "sample_text": "Case Number: CV 2026 11482\nCourtroom: 4B\nHearing Date: 2026-07-09\nFiling Fee: $214.00"
+    },
+    {
+      "id": "school_transcript_summary",
+      "label": "Transcript summary",
+      "category": "education",
+      "required_tokens": ["Student ID", "Cumulative GPA", "Credits Earned"],
+      "expected_fields": [
+        {"name": "student_id", "aliases": ["Student ID"], "expected": "S 772019", "type": "text"},
+        {"name": "cumulative_gpa", "aliases": ["Cumulative GPA"], "expected": "3.74", "type": "number"},
+        {"name": "credits_earned", "aliases": ["Credits Earned"], "expected": "92", "type": "number"}
+      ],
+      "sample_text": "Student ID: S 772019\nProgram: Applied Mathematics\nCumulative GPA: 3.74\nCredits Earned: 92"
+    },
+    {
+      "id": "government_permit",
+      "label": "Government permit",
+      "category": "government",
+      "required_tokens": ["Permit Number", "Issue Date", "Fee Paid"],
+      "expected_fields": [
+        {"name": "permit_number", "aliases": ["Permit Number"], "expected": "PRM 62044", "type": "text"},
+        {"name": "issue_date", "aliases": ["Issue Date"], "expected": "2026-04-12", "type": "date"},
+        {"name": "fee_paid", "aliases": ["Fee Paid"], "expected": "85.00", "type": "money"}
+      ],
+      "sample_text": "Permit Number: PRM 62044\nIssue Date: 2026-04-12\nExpiration Date: 2027-04-12\nFee Paid: $85.00"
+    },
+    {
+      "id": "id_card_scan",
+      "label": "ID card scan",
+      "category": "identity",
+      "required_tokens": ["Document Number", "Date of Birth", "Expiration"],
+      "expected_fields": [
+        {"name": "document_number", "aliases": ["Document Number"], "expected": "D 4819027", "type": "text"},
+        {"name": "date_of_birth", "aliases": ["Date of Birth"], "expected": "1991-08-14", "type": "date"},
+        {"name": "expiration", "aliases": ["Expiration"], "expected": "2030-08-14", "type": "date"}
+      ],
+      "sample_text": "Document Number: D 4819027\nDate of Birth: 1991-08-14\nExpiration: 2030-08-14"
+    },
+    {
+      "id": "maintenance_work_order",
+      "label": "Maintenance work order",
+      "category": "operations",
+      "required_tokens": ["Work Order", "Labor Hours", "Total Cost"],
+      "expected_fields": [
+        {"name": "work_order", "aliases": ["Work Order"], "expected": "WO 33812", "type": "text"},
+        {"name": "labor_hours", "aliases": ["Labor Hours"], "expected": "6.5", "type": "number"},
+        {"name": "total_cost", "aliases": ["Total Cost"], "expected": "917.25", "type": "money"}
+      ],
+      "sample_text": "Work Order: WO 33812\nAsset: Compressor 4\nLabor Hours: 6.5\nParts: $382.25\nTotal Cost: $917.25"
+    }
+  ]
+}

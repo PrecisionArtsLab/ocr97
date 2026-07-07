@@ -1,0 +1,34 @@
+{
+  "manifest": "benchmarks\\mixed_corpus_manifest.json",
+  "runs": [
+    {
+      "id": "rotated_focus_apr29",
+      "label": "Rotated document stress test - validate rotation-detect + retry improvements",
+      "run_dir": "artifacts/grade_reeval/phase2/rotated_focus",
+      "broad_variants": "rotated",
+      "focus_variants": "rotated",
+      "focus_limit": 20,
+      "include_heavy": true,
+      "status": "complete",
+      "calendar_event_id": "30a70325-b41a-4014-b38e-cfb79694630e",
+      "started_at": "2026-05-11T18:45:07Z",
+      "summary_path": "artifacts\\grade_reeval\\phase2\\rotated_focus\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-11T18:49:54Z"
+    },
+    {
+      "id": "noisy_scan_focus_apr29",
+      "label": "Noisy scan stress test - validate denoising improvements",
+      "run_dir": "artifacts/grade_reeval/phase2/noisy_scan_focus",
+      "broad_variants": "noisy_scan",
+      "focus_variants": "noisy_scan",
+      "focus_limit": 20,
+      "include_heavy": true,
+      "status": "complete",
+      "calendar_event_id": "64080ed2-7b4b-4915-8c4e-bdc8dd157f10",
+      "started_at": "2026-05-11T18:49:54Z",
+      "summary_path": "artifacts\\grade_reeval\\phase2\\noisy_scan_focus\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-11T18:53:53Z"
+    }
+  ],
+  "updated_at": "2026-05-11T18:53:53Z"
+}

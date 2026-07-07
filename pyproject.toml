@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocr97"
+version = "0.1.0"
+description = "Portable OCR97 multi-engine OCR pipeline with gateway and CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "OCR97 Contributors"}]
+license = "MIT"
+dependencies = [
+  "flask>=3.0",
+  "requests>=2.32",
+  "platformdirs>=4.2",
+  "pillow>=10.0",
+  "pytesseract>=0.3.13",
+  "pymupdf>=1.24",
+  "rapidocr-onnxruntime>=1.4.4",
+  "pypdf>=5.0",
+]
+
+[project.optional-dependencies]
+ml = [
+  "transformers>=4.45",
+  "torch>=2.4",
+  "huggingface_hub>=0.24",
+  "numpy>=1.26",
+]
+engines = [
+  "paddleocr>=3.3.0",
+  "mineru>=3.1.1",
+  "olmocr>=0.4.27",
+]
+baselines = [
+  "easyocr>=1.7.2",
+  "paddlex[ocr-core]>=3.3.13",
+  "paddleocr>=3.3.0",
+]
+full = [
+  "ocr97[ml,engines,baselines]",
+]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+ocr97 = "ocr97.cli:main"
+ocr97-serve = "ocr97.server:main"
+ocr97-bootstrap = "ocr97.bootstrap:main"
+ocr97-truth-benchmark = "ocr97.truth_benchmark:main"
+ocr97-truth-runner = "ocr97.truth_runner:main"
+ocr97-baseline-compare = "ocr97.baseline_compare:main"
+ocr97-sroie-runner = "ocr97.sroie_runner:main"
+ocr97-overnight-benchmark = "ocr97.overnight_benchmark:main"
+ocr97-mixed-corpus-benchmark = "ocr97.mixed_corpus_benchmark:main"
+ocr97-release-corpus = "ocr97.release_corpus:main"
+ocr97-release-grade = "ocr97.release_grade:main"
+ocr97-capability-audit = "ocr97.capability_audit:main"
+ocr97-spark-3090-plan = "ocr97.spark_3090_plan:main"
+ocr97-hardware-proof-sequence = "ocr97.hardware_proof_sequence:main"
+ocr97-hardware-proof-schedule = "ocr97.hardware_proof_scheduler:main"
+ocr97-helix97 = "ocr97.helix97:main"
+ocr97-real-corpus = "ocr97.real_corpus:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

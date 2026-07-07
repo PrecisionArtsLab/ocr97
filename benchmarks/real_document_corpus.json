@@ -1,0 +1,49 @@
+{
+  "name": "ocr97_real_document_starter_corpus",
+  "description": "Starter set of public real documents used to capture OCR97 failures before promoting Helix97 learned models.",
+  "cases": [
+    {
+      "id": "sliced_invoices_sample_invoice",
+      "label": "Sliced Invoices public sample invoice",
+      "url": "https://slicedinvoices.com/pdf/wordpress-pdf-invoice-plugin-sample.pdf",
+      "filename": "sliced_invoices_sample_invoice.pdf",
+      "source_note": "Public sample invoice from Sliced Invoices.",
+      "required_tokens": ["Invoice Number", "INV-3337", "Order Number", "12345", "Total Due", "$93.50"],
+      "expected_table_rows": 0,
+      "expected_fields": [
+        {"name": "invoice_number", "aliases": ["Invoice Number"], "expected": "INV-3337", "type": "text"},
+        {"name": "order_number", "aliases": ["Order Number"], "expected": "12345", "type": "text"},
+        {"name": "invoice_date", "aliases": ["Invoice Date"], "expected": "2016-01-25", "type": "date"},
+        {"name": "due_date", "aliases": ["Due Date"], "expected": "2016-01-31", "type": "date"},
+        {"name": "total_due", "aliases": ["Total Due"], "expected": "93.50", "type": "money"}
+      ]
+    },
+    {
+      "id": "nyu_sample_vendor_invoice",
+      "label": "NYU public sample vendor invoice",
+      "url": "https://isaw.nyu.edu/guide/forms/sample-vendor-invoice",
+      "filename": "nyu_sample_vendor_invoice.pdf",
+      "source_note": "Public sample vendor invoice from NYU ISAW.",
+      "required_tokens": ["Vendor Name", "INVOICE #", "Laundry Service", "TOTAL", "$ 567.50"],
+      "expected_table_rows": 0,
+      "expected_fields": [
+        {"name": "invoice_number", "aliases": ["INVOICE #"], "expected": "4", "type": "text"},
+        {"name": "invoice_date", "aliases": ["DATE"], "expected": "2011-07-08", "type": "date"},
+        {"name": "amount", "aliases": ["AMOUNT"], "expected": "462.00", "type": "money"},
+        {"name": "total", "aliases": ["TOTAL"], "expected": "567.50", "type": "money"}
+      ]
+    },
+    {
+      "id": "irs_w9_2024",
+      "label": "IRS Form W-9 March 2024",
+      "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+      "filename": "irs_w9_2024.pdf",
+      "source_note": "Official IRS W-9 PDF, used for form-token and layout coverage.",
+      "required_tokens": ["Form W-9", "Request for Taxpayer", "Identification Number", "Certification", "Internal Revenue Service"],
+      "expected_table_rows": 0,
+      "expected_fields": [
+        {"name": "form_number", "aliases": ["Form"], "expected": "W-9", "type": "text"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "manifest": "benchmarks\\release_97_gate_manifest.json",
+  "runs": [
+    {
+      "id": "release_broad_120_case_gate_v2",
+      "label": "Release 97 broad 120-case gate v2 (denoising)",
+      "run_dir": "artifacts/release_97_gate_v2/broad_120_case_gate",
+      "broad_variants": "clean,mild_degraded,low_contrast",
+      "focus_variants": "rotated,noisy_scan",
+      "focus_limit": 24,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-22T06:00:35Z",
+      "summary_path": "artifacts\\release_97_gate_v2\\broad_120_case_gate\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-22T07:01:45Z"
+    },
+    {
+      "id": "release_table_dense_focus_gate_v2",
+      "label": "Release 97 table dense focus gate v2 (denoising)",
+      "run_dir": "artifacts/release_97_gate_v2/table_dense_focus_gate",
+      "focus_ids": "invoice_line_items_table_first,brokerage_activity_table_first,vendor_invoice_services_table_first,purchase_order_table_first",
+      "broad_variants": "clean",
+      "focus_variants": "rotated,noisy_scan,small_text",
+      "focus_limit": 12,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-22T07:01:45Z",
+      "summary_path": "artifacts\\release_97_gate_v2\\table_dense_focus_gate\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-22T07:22:16Z"
+    },
+    {
+      "id": "release_rotated_noisy_stress_gate_v2",
+      "label": "Release 97 rotated and noisy stress gate v2 (denoising)",
+      "run_dir": "artifacts/release_97_gate_v2/rotated_noisy_stress_gate",
+      "broad_variants": "rotated,noisy_scan",
+      "focus_variants": "rotated,noisy_scan",
+      "focus_limit": 40,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-22T07:22:16Z",
+      "summary_path": "artifacts\\release_97_gate_v2\\rotated_noisy_stress_gate\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-22T09:17:30Z"
+    },
+    {
+      "id": "full_image_path_coverage_v2",
+      "label": "Full image path coverage - all categories, no focus_ids filter",
+      "run_dir": "artifacts/release_97_gate_v2/full_image_path_coverage",
+      "broad_variants": "clean",
+      "focus_variants": "rotated,noisy_scan",
+      "focus_limit": 120,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-22T09:17:30Z",
+      "summary_path": "artifacts\\release_97_gate_v2\\full_image_path_coverage\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-22T11:31:08Z"
+    },
+    {
+      "id": "rotation_quality_deep_dive_v2",
+      "label": "Rotation quality deep-dive - all categories, post-deskew improvements",
+      "run_dir": "artifacts/release_97_gate_v2/rotation_quality_deep_dive",
+      "broad_variants": "rotated",
+      "focus_variants": "rotated",
+      "focus_limit": 120,
+      "include_heavy": true,
+      "status": "complete",
+      "started_at": "2026-05-22T11:31:08Z",
+      "summary_path": "artifacts\\release_97_gate_v2\\rotation_quality_deep_dive\\mixed_corpus_summary.json",
+      "finished_at": "2026-05-22T11:57:00Z"
+    }
+  ],
+  "updated_at": "2026-05-22T11:57:00Z"
+}

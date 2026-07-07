@@ -1,0 +1,76 @@
+{
+  "name": "ocr97_3090_longform_examples",
+  "purpose": "Representative examples for Spark to inspect during the RTX 3090 capability run.",
+  "examples": [
+    {
+      "id": "invoice_line_items_table_dense",
+      "document_type": "invoice",
+      "stressors": ["line-item table", "money fields", "label/value crowding"],
+      "expected_signal": "table rows, subtotal, tax, and total must agree",
+      "why_it_matters": "Invoice line items are the highest-value table recovery target."
+    },
+    {
+      "id": "brokerage_activity_dense_table",
+      "document_type": "brokerage statement",
+      "stressors": ["ticker table", "numeric columns", "net amount validation"],
+      "expected_signal": "ticker rows and account-level totals should survive OCR noise",
+      "why_it_matters": "Brokerage statements expose row alignment and numeric hallucination risks."
+    },
+    {
+      "id": "bank_statement_monthly_balance_consensus",
+      "document_type": "bank statement",
+      "stressors": ["multiple money fields", "similar labels", "ending balance"],
+      "expected_signal": "opening, deposits, withdrawals, and closing balance should be field-consensus candidates",
+      "why_it_matters": "Bank statements require field disambiguation rather than plain text extraction."
+    },
+    {
+      "id": "insurance_eob_patient_responsibility",
+      "document_type": "insurance EOB",
+      "stressors": ["healthcare terms", "allowed amount", "patient responsibility"],
+      "expected_signal": "allowed amount and patient responsibility should not be swapped",
+      "why_it_matters": "EOBs are common real documents with fragile field labels."
+    },
+    {
+      "id": "shipping_manifest_tracking_weight",
+      "document_type": "shipping manifest",
+      "stressors": ["tracking IDs", "weights", "declared values"],
+      "expected_signal": "tracking number, weight, and declared value must normalize independently",
+      "why_it_matters": "Logistics documents mix alphanumeric IDs and numeric fields."
+    },
+    {
+      "id": "government_permit_low_contrast",
+      "document_type": "government permit",
+      "stressors": ["low contrast", "dates", "fee paid"],
+      "expected_signal": "permit number, issue date, and fee must survive contrast loss",
+      "why_it_matters": "Low-contrast scans are a realistic failure class for public forms."
+    },
+    {
+      "id": "id_card_scan_small_text",
+      "document_type": "identity document",
+      "stressors": ["small text", "date fields", "document number"],
+      "expected_signal": "DOB and expiration should not be confused",
+      "why_it_matters": "Small identity fields are a good proxy for crop-reread usefulness."
+    },
+    {
+      "id": "court_notice_rotated",
+      "document_type": "legal notice",
+      "stressors": ["rotation", "case number", "hearing date"],
+      "expected_signal": "rotation correction should recover case and date fields",
+      "why_it_matters": "Legal notices punish OCR systems that only optimize receipts."
+    },
+    {
+      "id": "receipt_sroie_3090_reference",
+      "document_type": "receipt",
+      "stressors": ["phone-captured receipt", "merchant/date/total", "receipt-region retry"],
+      "expected_signal": "merchant, date, and total should improve over Tesseract-only baselines",
+      "why_it_matters": "Receipts are the strongest existing OCR97 real-world evidence base."
+    },
+    {
+      "id": "real_scan_holdout_packet",
+      "document_type": "mixed real scanned packet",
+      "stressors": ["real noise", "unknown layout", "manual labels"],
+      "expected_signal": "Spark should add any available local sanitized real documents and score them separately",
+      "why_it_matters": "Synthetic fixtures cannot justify a 97-grade claim by themselves."
+    }
+  ]
+}
