@@ -16,7 +16,8 @@ dependencies = [
   "platformdirs>=4.2",
   "pillow>=10.0",
   "pytesseract>=0.3.13",
-  "pymupdf>=1.24",
+  "pymupdf>=1.24,<1.27",
+  "opencv-python<5",
   "rapidocr-onnxruntime>=1.4.4",
   "pypdf>=5.0",
 ]

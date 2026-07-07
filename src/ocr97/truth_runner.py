@@ -102,7 +102,10 @@ def _detect_rotation_angle(img_path: Path) -> Optional[float]:
         if lines is not None:
             angles = []
             for line in lines:
-                x1, y1, x2, y2 = line[0]
+                coords = _np.asarray(line).reshape(-1).tolist()
+                if len(coords) < 4:
+                    continue
+                x1, y1, x2, y2 = coords[:4]
                 dx = x2 - x1
                 if dx != 0:
                     a = float(_np.degrees(_np.arctan2(y2 - y1, dx)))
