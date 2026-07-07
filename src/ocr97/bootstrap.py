@@ -11,6 +11,14 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import diagnostics as diag
+from .engine_registry import (
+    engine_is_optional,
+    engine_model_dir,
+    engine_model_id,
+    engine_module_name,
+    engine_names,
+    engine_package_name,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -125,17 +133,10 @@ def main() -> int:
     requirements_path = Path(args.requirements_file).expanduser()
     constraints_path = Path(args.constraints_file).expanduser()
 
-    local_package_map = {
-        "tesseract": ("pytesseract", "pytesseract"),
-        "rapidocr": ("rapidocr_onnxruntime", "rapidocr-onnxruntime"),
-        "native_pdf_text": ("fitz", "pymupdf"),
-        "local_image_preprocessed_best": ("pytesseract", "pytesseract"),
-    }
-    optional_package_map = {
-        "gb10_paddleocr_vl": ("paddleocr", "paddleocr"),
-        "mineru2_5": ("mineru", "mineru"),
-        "olmocr2": ("olmocr", "olmocr"),
-    }
+    local_engines = [name for name in engine_names(include_optional=True) if not engine_is_optional(name)]
+    optional_engines = [name for name in engine_names(include_optional=True) if engine_is_optional(name)]
+    local_package_map = {name: (engine_module_name(name), engine_package_name(name)) for name in local_engines}
+    optional_package_map = {name: (engine_module_name(name), engine_package_name(name)) for name in optional_engines}
 
     install_action: Dict[str, Any] = {
         "mode": "check_only" if check_only else "install",
@@ -153,9 +154,9 @@ def main() -> int:
 
     model_downloads: Dict[str, Any] = {}
     if args.download_models:
-        model_downloads["mineru2_5"] = _maybe_download_model(diag.model_id("mineru2_5"), diag.model_dir("mineru2_5"))
-        model_downloads["olmocr2"] = _maybe_download_model(diag.model_id("olmocr2"), diag.model_dir("olmocr2"))
-        paddle_dir = diag.model_dir("gb10_paddleocr_vl")
+        model_downloads["mineru2_5"] = _maybe_download_model(engine_model_id("mineru2_5"), engine_model_dir("mineru2_5"))
+        model_downloads["olmocr2"] = _maybe_download_model(engine_model_id("olmocr2"), engine_model_dir("olmocr2"))
+        paddle_dir = engine_model_dir("gb10_paddleocr_vl")
         paddle_dir.mkdir(parents=True, exist_ok=True)
         model_downloads["gb10_paddleocr_vl"] = {"ok": True, "reason": "runtime_managed", "target_dir": str(paddle_dir)}
 
@@ -186,11 +187,7 @@ def main() -> int:
                 optional_version_conflicts.append(conflict)
 
     local_status = {engine: diag.engine_status(engine) for engine in local_package_map}
-    optional_status = {
-        "gb10_paddleocr_vl": diag.engine_status("gb10_paddleocr_vl"),
-        "mineru2_5": diag.engine_status("mineru2_5"),
-        "olmocr2": diag.engine_status("olmocr2"),
-    }
+    optional_status = {engine: diag.engine_status(engine) for engine in optional_package_map}
 
     metadata = {
         "updated_at": _utc_iso(),
@@ -213,11 +210,11 @@ def main() -> int:
         "optional_version_conflicts": optional_version_conflicts,
         "critical_version_conflicts": [*local_version_conflicts, *optional_version_conflicts],
         "local_engines": {
-            name: _engine_row(name, status, local_package_map[name][0], "", diag.model_dir(name))
+            name: _engine_row(name, status, local_package_map[name][0], "", engine_model_dir(name))
             for name, status in local_status.items()
         },
         "optional_engines": {
-            name: _engine_row(name, status, optional_package_map[name][0], diag.model_id(name), diag.model_dir(name))
+            name: _engine_row(name, status, optional_package_map[name][0], engine_model_id(name), engine_model_dir(name))
             for name, status in optional_status.items()
         },
     }
@@ -225,7 +222,7 @@ def main() -> int:
     metadata["ok"] = bool(not local_version_conflicts and all(bool((row or {}).get("status", {}).get("ready")) for row in metadata["local_engines"].values()))
     metadata["optional_ready"] = all(bool((row or {}).get("status", {}).get("ready")) for row in metadata["optional_engines"].values())
 
-    default_output = diag.model_dir("ocr97").parent / f"{args.instance_name.lower()}_ocr_install_metadata.json"
+    default_output = engine_model_dir("ocr97").parent / f"{args.instance_name.lower()}_ocr_install_metadata.json"
     output_path = Path(args.output).expanduser() if args.output else default_output
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

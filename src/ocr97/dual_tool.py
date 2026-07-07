@@ -17,6 +17,12 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+from .engine_registry import (
+    dedupe_engine_names,
+    engine_is_optional,
+    normalize_engine_name,
+    select_engine_chain,
+)
 from .mcp import register
 from . import local_inference as ocr_local_inference
 from .legacy_env import apply_legacy_env_aliases
@@ -1097,29 +1103,7 @@ def _classify_doc_type(path: Path, goal: str, document_features: Optional[Dict[s
 
 
 def _policy_engine_chain(doc_class: str, route_mode: str, forced_engine: str = "", document_features: Optional[Dict[str, Any]] = None) -> list[str]:
-    forced = str(forced_engine or "").strip().lower()
-    if forced and forced not in {"auto", "gb10_auto"}:
-        return [forced, "gb10_qwen_ocr", "rapidocr", "tesseract"]
-    quality_first = str(route_mode or DEFAULT_OCR_ROUTE_MODE).strip().lower() != "balanced"
-    if quality_first:
-        if doc_class == "forms_or_checkboxes":
-            return ["gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"]
-        if doc_class == "chart_or_figure":
-            return ["gb10_qwen_ocr", "gb10_paddleocr_vl", "rapidocr", "tesseract"]
-        if doc_class in {"digital_pdf", "table_dense"}:
-            return ["native_pdf_text", "gb10_paddleocr_vl", "gb10_qwen_ocr", "rapidocr", "tesseract"]
-        if doc_class in {"scanned_pdf", "handwritten"}:
-            return ["gb10_got_ocr2", "gb10_qwen_ocr", "rapidocr", "tesseract"]
-        return ["gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"]
-    if doc_class == "forms_or_checkboxes":
-        return ["gb10_qwen_ocr", "rapidocr", "tesseract"]
-    if doc_class == "chart_or_figure":
-        return ["gb10_qwen_ocr", "rapidocr"]
-    if doc_class in {"digital_pdf", "table_dense"}:
-        return ["native_pdf_text", "gb10_paddleocr_vl", "gb10_qwen_ocr", "rapidocr"]
-    if doc_class in {"scanned_pdf", "handwritten"}:
-        return ["gb10_got_ocr2", "gb10_qwen_ocr", "rapidocr"]
-    return ["gb10_qwen_ocr", "rapidocr"]
+    return select_engine_chain(doc_class, route_mode, forced_engine=forced_engine)
 
 
 def _table_rows(text: str) -> int:
@@ -1478,7 +1462,7 @@ def _phase2_base_engine_name(engine: Any) -> str:
     for separator in ("+", ":"):
         if separator in name:
             name = name.split(separator, 1)[0].strip()
-    return name
+    return normalize_engine_name(name)
 
 
 def _run_engine_on_rendered_pages(
@@ -2778,7 +2762,7 @@ def _run_policy_route(
     doc_class = _classify_doc_type(path, goal, document_features=document_features)
     chain = _policy_engine_chain(doc_class, route_mode, forced_engine=forced_engine, document_features=document_features)
     if not gb10_enabled:
-        chain = [engine for engine in chain if not str(engine).startswith("gb10_")]
+        chain = [engine for engine in chain if not engine_is_optional(engine)]
         if not chain:
             chain = ["rapidocr", "tesseract"]
     attempts: list[Dict[str, Any]] = []
@@ -3159,7 +3143,7 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not path.exists():
         return {"ok": False, "error": f"file_not_found:{path_str}"}
 
-    engine = (payload.get("engine") or "auto").strip().lower()
+    engine = normalize_engine_name(str(payload.get("engine") or "auto").strip().lower())
     goal = (payload.get("goal") or "").strip()
     max_chars = int(payload.get("max_chars", 4000))
     max_pages = int(payload.get("max_pages", 2))
@@ -3178,12 +3162,7 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
     doc_class = _classify_doc_type(path, goal, document_features=document_features)
     gb10_enabled = _gb10_enabled(payload)
 
-    gb10_aliases = {
-        "gb10_auto",
-        "gb10_paddleocr_vl",
-        "gb10_got_ocr2",
-        "gb10_qwen_ocr",
-    }
+    gb10_aliases = {"gb10_auto", "gb10_paddleocr_vl", "gb10_got_ocr2", "gb10_qwen_ocr"}
 
     gb10_attempt: Dict[str, Any] = {}
     if engine in gb10_aliases or (engine == "auto" and gb10_enabled):
@@ -3243,7 +3222,19 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
             feature_detection=feature_detection,
         )
 
-    if engine not in {"auto", "tesseract", "rapidocr", "native_pdf_text", *gb10_aliases}:
+    valid_forced_engines = set(
+        dedupe_engine_names(
+            [
+                "tesseract",
+                "rapidocr",
+                "native_pdf_text",
+                "local_image_best",
+                "local_image_preprocessed_best",
+                *gb10_aliases,
+            ]
+        )
+    )
+    if engine not in {"auto", "gb10_auto", *valid_forced_engines}:
         return {"ok": False, "error": "engine_invalid"}
 
     if engine == "tesseract":

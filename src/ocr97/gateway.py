@@ -26,6 +26,21 @@ import requests
 from flask import jsonify, request
 
 from . import diagnostics as diag
+from .engine_registry import (
+    default_lane_signature,
+    engine_class,
+    engine_cli_command,
+    engine_is_optional,
+    engine_module_name,
+    engine_names,
+    engine_native_api_module,
+    engine_runtime_signatures,
+    engine_supports_doc_class,
+    filter_optional_engines,
+    normalize_engine_name,
+    public_capability_rows,
+    select_engine_chain,
+)
 from .legacy_env import apply_legacy_env_aliases
 from .paths import ensure_paths
 from .profiles import gb10_default_enabled, local_production_enabled
@@ -234,32 +249,10 @@ def _classify_doc_type(path: Path, goal: str, document_features: Optional[Dict[s
 
 
 def _engine_chain(doc_class: str, route_mode: str, requested_model: str, document_features: Optional[Dict[str, Any]] = None) -> list[str]:
-    requested = str(requested_model or "").strip().lower()
-    if requested and requested not in {"auto", "gb10_auto"}:
-        chain = [requested, "gb10_qwen_ocr", "rapidocr", "tesseract"]
-    elif str(route_mode or "quality_first").strip().lower() != "balanced":
-        if doc_class == "forms_or_checkboxes":
-            chain = ["gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"]
-        elif doc_class == "chart_or_figure":
-            chain = ["gb10_qwen_ocr", "gb10_paddleocr_vl", "rapidocr", "tesseract"]
-        elif doc_class in {"digital_pdf", "table_dense"}:
-            chain = ["native_pdf_text", "gb10_paddleocr_vl", "mineru2_5", "olmocr2", "gb10_qwen_ocr", "rapidocr", "tesseract"]
-        elif doc_class in {"scanned_pdf", "handwritten"}:
-            chain = ["gb10_got_ocr2", "mineru2_5", "gb10_qwen_ocr", "rapidocr", "tesseract"]
-        else:
-            chain = ["local_image_best", "gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"]
-    elif doc_class == "forms_or_checkboxes":
-        chain = ["gb10_qwen_ocr", "rapidocr", "tesseract"]
-    elif doc_class == "chart_or_figure":
-        chain = ["gb10_qwen_ocr", "rapidocr"]
-    elif doc_class in {"digital_pdf", "table_dense"}:
-        chain = ["native_pdf_text", "gb10_paddleocr_vl", "gb10_qwen_ocr", "rapidocr"]
-    elif doc_class in {"scanned_pdf", "handwritten"}:
-        chain = ["gb10_got_ocr2", "gb10_qwen_ocr", "rapidocr"]
-    else:
-        chain = ["local_image_best", "gb10_qwen_ocr", "rapidocr"]
+    requested = normalize_engine_name(str(requested_model or "").strip().lower())
+    chain = select_engine_chain(doc_class, route_mode, forced_engine=requested)
     if not gb10_default_enabled():
-        chain = [engine for engine in chain if not str(engine).startswith("gb10_")]
+        chain = filter_optional_engines(chain, allow_optional=False)
         if not chain:
             chain = ["rapidocr", "tesseract"]
     return chain
@@ -1596,7 +1589,7 @@ def _olmocr_backend_status() -> Dict[str, Any]:
 
 
 def _engine_health(engine: str) -> Dict[str, Any]:
-    name = str(engine or "").strip().lower()
+    name = normalize_engine_name(str(engine or "").strip().lower())
     if name == "gb10_paddleocr_vl":
         return _paddle_backend_status()
     if name == "mineru2_5":
@@ -3048,13 +3041,14 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
     _start_prewarm_loop()
 
     def _engine_snapshot(engine: str) -> Dict[str, Any]:
-        health = _engine_health(engine)
+        normalized = normalize_engine_name(engine)
+        health = _engine_health(normalized)
         runtime_flags = _runtime_loaded_flags()
-        lane_class = _engine_class(engine)
-        slo = _lane_slo(engine)
+        lane_class = _engine_class(normalized)
+        slo = _lane_slo(normalized)
         smoke = _load_smoke_report()
         smoke_rows = dict(smoke.get("engines") or {})
-        smoke_row = dict(smoke_rows.get(engine) or {})
+        smoke_row = dict(smoke_rows.get(normalized) or smoke_rows.get(engine) or {})
         smoke_pass = bool(smoke_row.get("pass")) or bool(smoke_row.get("ok"))
         p95_cap = int(p95_caps_by_class.get(lane_class, p95_caps_by_class.get("unknown", 30000)))
         timeout_ok = float(slo.get("timeout_rate") or 0.0) < 0.05
@@ -3073,17 +3067,17 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             "p95_cap_ms": int(p95_cap),
         }
         return {
-            "name": engine,
+            "name": normalized,
             "class": lane_class,
             "ready": bool(ready_gate.get("pass")),
             "health_ready": health_ready,
             "reason": str(health.get("reason") or ""),
             "health": health,
-            "runtime_loaded": bool(runtime_flags.get(engine)),
-            "cold_start_estimate_ms": _compute_cold_start_ms(engine),
-            "native_api_supported": _engine_native_api_supported(engine),
-            "cli_supported": _engine_cli_supported(engine),
-            "lane_signature_modes": _engine_signature_modes(engine),
+            "runtime_loaded": bool(runtime_flags.get(normalized)),
+            "cold_start_estimate_ms": _compute_cold_start_ms(normalized),
+            "native_api_supported": _engine_native_api_supported(normalized),
+            "cli_supported": _engine_cli_supported(normalized),
+            "lane_signature_modes": _engine_signature_modes(normalized),
             "slo": slo,
             "ready_gate": ready_gate,
             "smoke": {
@@ -3098,84 +3092,27 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         return bool(_engine_snapshot(engine).get("ready"))
 
     def _engine_class(engine: str) -> str:
-        mapping = {
-            "gb10_paddleocr_vl": "layout",
-            "gb10_got_ocr2": "dense_scan",
-            "mineru2_5": "structure_parser",
-            "olmocr2": "linearization",
-            "gb10_qwen_ocr": "semantic_cleanup",
-            "rapidocr": "compat_fallback",
-            "tesseract": "compat_fallback",
-            "native_pdf_text": "native_text",
-            "local_image_best": "image_router",
-            "local_image_preprocessed_best": "image_preprocessor",
-        }
-        return mapping.get(str(engine or "").strip().lower(), "unknown")
+        return engine_class(engine)
 
     def _engine_native_api_supported(engine: str) -> bool:
-        name = str(engine or "").strip().lower()
-        if name == "mineru2_5":
-            return _module_available("mineru.cli.client")
-        if name == "olmocr2":
-            return _module_available("olmocr.pipeline")
-        return False
+        module_name = engine_native_api_module(engine)
+        return bool(module_name and _module_available(module_name))
 
     def _engine_cli_supported(engine: str) -> bool:
-        name = str(engine or "").strip().lower()
-        if name == "mineru2_5":
-            return bool(shutil.which(str(os.getenv("OCR97_MINERU2_5_CMD", "mineru")).strip() or "mineru"))
-        if name == "olmocr2":
-            return bool(shutil.which(str(os.getenv("OCR97_OLMOCR2_CMD", "olmocr")).strip() or "olmocr"))
-        return False
+        cmd = engine_cli_command(engine)
+        return bool(cmd and shutil.which(cmd))
 
     def _engine_signature_modes(engine: str) -> list[str]:
-        name = str(engine or "").strip().lower()
-        if name == "mineru2_5":
-            return ["mineru_native_api", "mineru_cli_fallback"]
-        if name == "olmocr2":
-            return ["olmocr_native_api", "olmocr_cli_fallback"]
-        if name == "gb10_paddleocr_vl":
-            return ["paddleocr_vl_worker"]
-        if name == "gb10_got_ocr2":
-            return ["got_ocr2_worker"]
-        if name == "gb10_qwen_ocr":
-            return ["qwen_ocr_worker"]
-        if name == "rapidocr":
-            return ["rapidocr_worker"]
-        if name == "tesseract":
-            return ["tesseract_worker"]
-        if name == "native_pdf_text":
-            return ["native_pdf_text"]
-        if name == "local_image_best":
-            return ["tesseract_worker", "rapidocr_worker"]
-        if name == "local_image_preprocessed_best":
-            return ["pillow_preprocess", "tesseract_worker", "rapidocr_worker"]
-        return [f"{name}_worker"] if name else []
+        modes = engine_runtime_signatures(engine)
+        return list(modes or ([f"{normalize_engine_name(engine) or 'unknown'}_worker"]))
 
     def _default_lane_signature(engine: str, row: Dict[str, Any]) -> str:
         if str(row.get("lane_signature") or "").strip():
             return str(row.get("lane_signature") or "").strip()
-        name = str(engine or "").strip().lower()
-        if name == "mineru2_5":
-            return "mineru_native_unknown"
-        if name == "olmocr2":
-            return "olmocr_native_unknown"
-        if name == "gb10_paddleocr_vl":
-            return "paddleocr_vl_worker"
-        if name == "gb10_got_ocr2":
-            return "got_ocr2_worker"
-        if name == "native_pdf_text":
-            return "native_pdf_text"
-        if name == "local_image_best":
-            return "local_image_best"
-        if name == "local_image_preprocessed_best":
-            return "local_image_preprocessed_best"
-        if name == "gb10_qwen_ocr":
-            return "qwen_ocr_worker"
-        if name == "rapidocr":
-            return "rapidocr_worker"
-        if name == "tesseract":
-            return "tesseract_worker"
+        default_mode = default_lane_signature(engine)
+        if default_mode:
+            return default_mode
+        name = normalize_engine_name(str(engine or "").strip().lower())
         return f"{name or 'unknown'}_worker"
 
     def _normalize_result(
@@ -3291,6 +3228,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         region_retry_policy: Optional[Dict[str, Any]] = None,
         bypass_ready_gate: bool = False,
     ) -> Dict[str, Any]:
+        engine = normalize_engine_name(engine)
         start = time.perf_counter()
         timeout_sec = max(15, min(default_timeout_sec, int(os.getenv("OCR97_OCR_ENGINE_TIMEOUT_SEC", str(default_timeout_sec)))))
         snapshot = _engine_snapshot(engine)
@@ -3682,7 +3620,9 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         json_payload = request.get_json(silent=True) if request.is_json else {}
 
         goal = str(request.form.get("goal") or ((json_payload or {}).get("goal") if isinstance(json_payload, dict) else "") or "").strip()
-        model = str(request.form.get("model") or ((json_payload or {}).get("model") if isinstance(json_payload, dict) else "") or "auto").strip().lower()
+        model = normalize_engine_name(
+            str(request.form.get("model") or ((json_payload or {}).get("model") if isinstance(json_payload, dict) else "") or "auto").strip().lower()
+        )
         route_mode = str(request.form.get("route_mode") or ((json_payload or {}).get("route_mode") if isinstance(json_payload, dict) else "") or os.getenv("OCR97_OCR_ROUTE_MODE", "quality_first")).strip().lower()
         explicit_lane = model not in {"", "auto", "gb10_auto"}
         requested_lane_strict = _truthy(
@@ -3738,19 +3678,15 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             doc_class = _classify_doc_type(local_path, goal, document_features=document_features)
             if explicit_lane and requested_lane_strict:
                 warnings = list(feature_detection.get("warnings") or [])
-                if doc_class == "handwritten" and model not in {"gb10_got_ocr2", "gb10_qwen_ocr"}:
-                    warnings.append("detected_handwriting_but_requested_lane_is_strict")
-                if doc_class == "chart_or_figure" and model not in {"gb10_qwen_ocr", "gb10_paddleocr_vl"}:
-                    warnings.append("detected_chart_or_figure_but_requested_lane_is_strict")
-                if doc_class == "forms_or_checkboxes" and model not in {"gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"}:
-                    warnings.append("detected_visual_controls_but_requested_lane_is_strict")
+                if model not in {"", "auto", "gb10_auto"} and not engine_supports_doc_class(model, doc_class):
+                    warnings.append(f"detected_{doc_class}_but_requested_lane_lacks_matching_capability")
                 feature_detection["warnings"] = warnings
             if explicit_lane and requested_lane_strict:
                 chain = [model]
             else:
                 chain = _engine_chain(doc_class, route_mode, model, document_features=document_features)
             if not gb10_default_enabled() and not (explicit_lane and requested_lane_strict):
-                chain = [engine for engine in chain if not str(engine).startswith("gb10_")] + ["rapidocr", "tesseract"]
+                chain = filter_optional_engines([*chain, "rapidocr", "tesseract"], allow_optional=False)
             attempts: list[Dict[str, Any]] = []
             best: Dict[str, Any] = {}
             best_score = -1.0
@@ -3921,17 +3857,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             ollama_ok = None
             ollama_data = {}
         with state.lock:
-            engine_rows = {
-                "gb10_paddleocr_vl": _engine_snapshot("gb10_paddleocr_vl"),
-                "gb10_got_ocr2": _engine_snapshot("gb10_got_ocr2"),
-                "mineru2_5": _engine_snapshot("mineru2_5"),
-                "olmocr2": _engine_snapshot("olmocr2"),
-                "gb10_qwen_ocr": _engine_snapshot("gb10_qwen_ocr"),
-                "local_image_best": _engine_snapshot("local_image_best"),
-                "local_image_preprocessed_best": _engine_snapshot("local_image_preprocessed_best"),
-                "rapidocr": _engine_snapshot("rapidocr"),
-                "tesseract": _engine_snapshot("tesseract"),
-            }
+            engine_rows = {name: _engine_snapshot(name) for name in engine_names(include_optional=True)}
             install_runtime = _safe_json_load(install_manifest_path) or install_manifest
             smoke_runtime = _load_smoke_report()
             payload = {
@@ -3953,17 +3879,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                     "url": ollama_url,
                     "models": [str((item or {}).get("name") or "") for item in list(ollama_data.get("models") or [])],
                 },
-                "engines": {
-                    "gb10_paddleocr_vl": bool(engine_rows["gb10_paddleocr_vl"]["ready"]),
-                    "gb10_got_ocr2": bool(engine_rows["gb10_got_ocr2"]["ready"]),
-                    "mineru2_5": bool(engine_rows["mineru2_5"]["ready"]),
-                    "olmocr2": bool(engine_rows["olmocr2"]["ready"]),
-                    "gb10_qwen_ocr": bool(engine_rows["gb10_qwen_ocr"]["ready"]),
-                    "local_image_best": bool(engine_rows["local_image_best"]["ready"]),
-                    "local_image_preprocessed_best": bool(engine_rows["local_image_preprocessed_best"]["ready"]),
-                    "rapidocr": bool(engine_rows["rapidocr"]["ready"]),
-                    "tesseract": bool(engine_rows["tesseract"]["ready"]),
-                },
+                "engines": {name: bool(details.get("ready")) for name, details in engine_rows.items()},
                 "feature_detection": {
                     "document_feature_classifier": {
                         "ready": bool(PIL_AVAILABLE),
@@ -4037,6 +3953,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             return jsonify({"ok": False, "error": "unauthorized"}), 401
         install_runtime = _safe_json_load(install_manifest_path) or install_manifest
         smoke_runtime = _load_smoke_report()
+        engine_rows = {row["name"]: _engine_snapshot(str(row["name"])) for row in public_capability_rows()}
         engines = [
             {
                 "class": "feature_detection",
@@ -4062,15 +3979,18 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 "enabled": _truthy(os.getenv("OCR97_LAYOUT_MODEL_ENABLED", "0"), default=False),
                 "runtime_loaded": False,
             },
-            {"class": "layout", **_engine_snapshot("gb10_paddleocr_vl")},
-            {"class": "dense_scan", **_engine_snapshot("gb10_got_ocr2")},
-            {"class": "structure_parser", **_engine_snapshot("mineru2_5")},
-            {"class": "linearization", **_engine_snapshot("olmocr2")},
-            {"class": "semantic_cleanup", **_engine_snapshot("gb10_qwen_ocr")},
-            {"class": "image_router", **_engine_snapshot("local_image_best")},
-            {"class": "image_preprocessor", **_engine_snapshot("local_image_preprocessed_best")},
-            {"class": "compat_fallback", **_engine_snapshot("rapidocr")},
-            {"class": "compat_fallback", **_engine_snapshot("tesseract")},
+            *[
+                {
+                    "class": str(row.get("class") or ""),
+                    "provider_name": str(row.get("provider") or ""),
+                    "label": str(row.get("label") or ""),
+                    "supported_doc_classes": list(row.get("supported_doc_classes") or []),
+                    "aliases": list(row.get("aliases") or []),
+                    "optional_lane": bool(row.get("optional_lane")),
+                    **engine_rows[str(row.get("name") or "")],
+                }
+                for row in public_capability_rows()
+            ],
         ]
         return jsonify(
             {
