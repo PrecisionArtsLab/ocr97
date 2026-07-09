@@ -77,6 +77,7 @@ _RAPID_OCR = None
 _SURYA_LAYOUT_PREDICTOR = None
 _SURYA_LAYOUT_ERROR = ""
 _SURYA_LOCK = threading.Lock()
+_ENGINE_WARM_STATE: Dict[str, bool] = {"rapidocr": False}
 _TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 _ANCHOR_STOPWORDS = {
     "pdf",
@@ -119,6 +120,120 @@ DEFAULT_OCR_PHASE2_REGION_RETRY_CONF_THRESHOLD = max(
     0.0,
     min(float(os.getenv("OCR97_OCR_PHASE2_REGION_RETRY_CONF_THRESHOLD", "0.45")), 1.0),
 )
+
+
+def _coerce_ms(value: Any) -> float:
+    try:
+        return round(max(0.0, float(value)), 2)
+    except Exception:
+        return 0.0
+
+
+def _empty_latency_breakdown() -> Dict[str, float]:
+    return {
+        "model_load_overhead_ms": 0.0,
+        "preprocessing_overhead_ms": 0.0,
+        "ocr_engine_time_ms": 0.0,
+        "fallback_or_chaining_overhead_ms": 0.0,
+        "residual_overhead_ms": 0.0,
+    }
+
+
+def _clone_latency_breakdown(raw: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    out = _empty_latency_breakdown()
+    if not isinstance(raw, dict):
+        return out
+    for key in out.keys():
+        out[key] = _coerce_ms(raw.get(key))
+    return out
+
+
+def _latency_breakdown_total(raw: Optional[Dict[str, Any]]) -> float:
+    if not isinstance(raw, dict):
+        return 0.0
+    return round(sum(_coerce_ms(raw.get(key)) for key in _empty_latency_breakdown().keys()), 2)
+
+
+def _merge_latency_breakdowns(*parts: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    out = _empty_latency_breakdown()
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        for key in out.keys():
+            out[key] = round(out[key] + _coerce_ms(part.get(key)), 2)
+    return out
+
+
+def _finalize_latency_breakdown(raw: Optional[Dict[str, Any]], *, total_ms: float) -> Dict[str, float]:
+    out = _clone_latency_breakdown(raw)
+    classified = round(
+        out["model_load_overhead_ms"]
+        + out["preprocessing_overhead_ms"]
+        + out["ocr_engine_time_ms"]
+        + out["fallback_or_chaining_overhead_ms"],
+        2,
+    )
+    residual = round(max(0.0, _coerce_ms(total_ms) - classified), 2)
+    out["residual_overhead_ms"] = residual
+    return out
+
+
+def _timing_meta_defaults() -> Dict[str, Any]:
+    return {
+        "import_path": __file__,
+        "engine_selected": "",
+        "selected_preprocess": "",
+        "phase2_enabled": bool(DEFAULT_OCR_PHASE2_ENABLED),
+        "self_consistency_used": False,
+        "region_retry_count": 0,
+        "engine_chain_length": 0,
+        "fast_accept_applied": False,
+        "fast_accept_reason": "",
+        "fast_accept_thresholds": {},
+        "second_local_engine_skipped": False,
+    }
+
+
+def _build_timing_meta(
+    raw: Optional[Dict[str, Any]] = None,
+    *,
+    engine_selected: str = "",
+    selected_preprocess: str = "",
+    phase2_enabled: Optional[bool] = None,
+    self_consistency_used: Optional[bool] = None,
+    region_retry_count: Optional[int] = None,
+    engine_chain_length: Optional[int] = None,
+) -> Dict[str, Any]:
+    meta = _timing_meta_defaults()
+    if isinstance(raw, dict):
+        meta.update(
+            {
+                "import_path": str(raw.get("import_path") or meta["import_path"]),
+                "engine_selected": str(raw.get("engine_selected") or meta["engine_selected"]),
+                "selected_preprocess": str(raw.get("selected_preprocess") or meta["selected_preprocess"]),
+                "phase2_enabled": bool(raw.get("phase2_enabled")) if raw.get("phase2_enabled") is not None else meta["phase2_enabled"],
+                "self_consistency_used": bool(raw.get("self_consistency_used")) if raw.get("self_consistency_used") is not None else meta["self_consistency_used"],
+                "region_retry_count": int(raw.get("region_retry_count") or 0),
+                "engine_chain_length": int(raw.get("engine_chain_length") or 0),
+                "fast_accept_applied": bool(raw.get("fast_accept_applied")) if raw.get("fast_accept_applied") is not None else meta["fast_accept_applied"],
+                "fast_accept_reason": str(raw.get("fast_accept_reason") or meta["fast_accept_reason"]),
+                "fast_accept_thresholds": dict(raw.get("fast_accept_thresholds") or meta["fast_accept_thresholds"]),
+                "second_local_engine_skipped": bool(raw.get("second_local_engine_skipped")) if raw.get("second_local_engine_skipped") is not None else meta["second_local_engine_skipped"],
+            }
+        )
+    if engine_selected:
+        meta["engine_selected"] = str(engine_selected)
+    if selected_preprocess:
+        meta["selected_preprocess"] = str(selected_preprocess)
+    if phase2_enabled is not None:
+        meta["phase2_enabled"] = bool(phase2_enabled)
+    if self_consistency_used is not None:
+        meta["self_consistency_used"] = bool(self_consistency_used)
+    if region_retry_count is not None:
+        meta["region_retry_count"] = int(region_retry_count)
+    if engine_chain_length is not None:
+        meta["engine_chain_length"] = int(engine_chain_length)
+    return meta
 DEFAULT_OCR_PHASE2_COLUMN_SPLIT_ENABLED = os.getenv("OCR97_OCR_PHASE2_COLUMN_SPLIT_ENABLED", "1").lower() in {"1", "true", "yes"}
 DEFAULT_OCR_SURYA_COLUMN_SPLIT_ENABLED = os.getenv("OCR97_OCR_SURYA_COLUMN_SPLIT_ENABLED", "1").lower() in {"1", "true", "yes"}
 DEFAULT_OCR_SURYA_DEVICE = str(os.getenv("OCR97_OCR_SURYA_DEVICE", "cuda" if local_production_enabled() else "cpu")).strip().lower() or ("cuda" if local_production_enabled() else "cpu")
@@ -845,18 +960,26 @@ def _tesseract_ocr(path: Path, max_chars: int = 4000) -> Dict[str, Any]:
     if not TESS_AVAILABLE:
         return {"ok": False, "error": "tesseract_unavailable"}
     try:
+        overall_start = time.perf_counter()
         image = Image.open(path)
+        preprocess_started = time.perf_counter()
         variants = _preprocess_variants(image) if DEFAULT_OCR_PHASE2_ENABLED else [{"name": "base", "image": _preprocess_image(image)}]
+        preprocess_ms = (time.perf_counter() - preprocess_started) * 1000.0
         best_text = ""
         best_conf = -1.0
         best_regions: list[Dict[str, int]] = []
+        best_variant_name = ""
         attempted = []
+        primary_ocr_ms = 0.0
+        extra_ocr_ms = 0.0
         for variant in variants:
             variant_name = str(variant.get("name") or "base")
             processed = variant.get("image")
             if processed is None:
                 continue
+            ocr_started = time.perf_counter()
             ocr_data = pytesseract.image_to_data(processed, output_type=pytesseract.Output.DICT)
+            variant_ocr_ms = (time.perf_counter() - ocr_started) * 1000.0
             texts = []
             confidences = []
             for i, text in enumerate(ocr_data["text"]):
@@ -869,11 +992,17 @@ def _tesseract_ocr(path: Path, max_chars: int = 4000) -> Dict[str, Any]:
                     confidences.append(conf)
             full_text = _normalize_text(" ".join(texts), max_chars)
             avg_conf = sum(confidences) / len(confidences) / 100.0 if confidences else 0.0
-            attempted.append({"variant": variant_name, "chars": len(full_text), "confidence": round(avg_conf, 3)})
+            attempted.append({"variant": variant_name, "chars": len(full_text), "confidence": round(avg_conf, 3), "ocr_engine_time_ms": round(variant_ocr_ms, 2)})
+            if not primary_ocr_ms:
+                primary_ocr_ms = variant_ocr_ms
+            else:
+                extra_ocr_ms += variant_ocr_ms
             if (avg_conf > best_conf and len(full_text) >= max(20, int(len(best_text) * 0.85))) or len(full_text) > len(best_text):
                 best_text = full_text
                 best_conf = avg_conf
                 best_regions = _extract_tesseract_regions(ocr_data)
+                best_variant_name = variant_name
+        total_ms = round((time.perf_counter() - overall_start) * 1000.0, 2)
         return {
             "ok": bool(best_text),
             "engine": "tesseract",
@@ -881,6 +1010,24 @@ def _tesseract_ocr(path: Path, max_chars: int = 4000) -> Dict[str, Any]:
             "confidence": round(max(0.0, best_conf), 3),
             "confidence_map_regions": best_regions,
             "preprocess_variants": attempted,
+            "selected_preprocess": best_variant_name or "base",
+            "latency_breakdown": _finalize_latency_breakdown(
+                {
+                    "model_load_overhead_ms": 0.0,
+                    "preprocessing_overhead_ms": round(preprocess_ms, 2),
+                    "ocr_engine_time_ms": round(primary_ocr_ms, 2),
+                    "fallback_or_chaining_overhead_ms": round(extra_ocr_ms, 2),
+                },
+                total_ms=total_ms,
+            ),
+            "timing_meta": _build_timing_meta(
+                engine_selected="tesseract",
+                selected_preprocess=best_variant_name or "base",
+                phase2_enabled=bool(DEFAULT_OCR_PHASE2_ENABLED),
+                self_consistency_used=bool(len(variants) > 1),
+                region_retry_count=0,
+                engine_chain_length=1,
+            ),
             "route": "local",
         }
     except Exception as exc:
@@ -894,11 +1041,22 @@ def _load_rapidocr():
     return _RAPID_OCR
 
 
+def _load_rapidocr_with_timing() -> Tuple[Any, float]:
+    global _RAPID_OCR
+    if _RAPID_OCR is not None:
+        return _RAPID_OCR, 0.0
+    started = time.perf_counter()
+    _RAPID_OCR = RapidOCR()
+    _ENGINE_WARM_STATE["rapidocr"] = True
+    return _RAPID_OCR, round((time.perf_counter() - started) * 1000.0, 2)
+
+
 def _rapidocr_ocr(path: Path, max_chars: int = 4000) -> Dict[str, Any]:
     if not RAPID_AVAILABLE:
         return {"ok": False, "error": "rapidocr_unavailable"}
     try:
-        ocr = _load_rapidocr()
+        overall_start = time.perf_counter()
+        ocr, load_ms = _load_rapidocr_with_timing()
         start = time.perf_counter()
         result, _ = ocr(str(path))
         duration_ms = (time.perf_counter() - start) * 1000.0
@@ -918,6 +1076,7 @@ def _rapidocr_ocr(path: Path, max_chars: int = 4000) -> Dict[str, Any]:
     full_text = _normalize_text(" ".join(texts), max_chars)
     avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
     regions = _extract_rapidocr_regions(result, max_regions=DEFAULT_OCR_PHASE2_REGION_RETRY_MAX)
+    total_ms = round((time.perf_counter() - overall_start) * 1000.0, 2)
     return {
         "ok": True,
         "engine": "rapidocr",
@@ -925,6 +1084,24 @@ def _rapidocr_ocr(path: Path, max_chars: int = 4000) -> Dict[str, Any]:
         "confidence": round(avg_conf, 3),
         "confidence_map_regions": regions,
         "duration_ms": round(duration_ms, 2),
+        "selected_preprocess": "base",
+        "latency_breakdown": _finalize_latency_breakdown(
+            {
+                "model_load_overhead_ms": round(load_ms, 2),
+                "preprocessing_overhead_ms": 0.0,
+                "ocr_engine_time_ms": round(duration_ms, 2),
+                "fallback_or_chaining_overhead_ms": 0.0,
+            },
+            total_ms=total_ms,
+        ),
+        "timing_meta": _build_timing_meta(
+            engine_selected="rapidocr",
+            selected_preprocess="base",
+            phase2_enabled=bool(DEFAULT_OCR_PHASE2_ENABLED),
+            self_consistency_used=False,
+            region_retry_count=0,
+            engine_chain_length=1,
+        ),
         "route": "local",
     }
 
@@ -1034,13 +1211,113 @@ def _needs_semantic_cleanup(goal: str) -> bool:
         "day trading",
         "preserve headings",
         "preserve bullets",
-        "structured",
         "markdown",
         "chart",
-        "table",
         "multi-column",
+        "rewrite this ocr",
+        "cleanup the ocr",
+        "reformat the ocr",
     ]
     return any(_goal_has_keyword(goal, keyword) for keyword in keywords)
+
+
+_LOCAL_FAST_ACCEPT_THRESHOLDS: Dict[str, float] = {
+    "score": 0.34,
+    "numeric_fidelity_score": 0.50,
+    "chars": 100.0,
+    "structure_score": 0.08,
+}
+
+
+def _goal_requests_layout_preservation(goal: str) -> bool:
+    if not goal:
+        return False
+    keywords = [
+        "table",
+        "layout",
+        "multi-column",
+        "markdown",
+        "preserve headings",
+        "preserve bullets",
+        "rewrite this ocr",
+        "cleanup the ocr",
+        "reformat the ocr",
+        "semantic rewrite",
+        "semantic cleanup",
+    ]
+    return any(_goal_has_keyword(goal, keyword) for keyword in keywords)
+
+
+def _doc_class_is_layout_heavy(doc_class: str) -> bool:
+    return str(doc_class or "").strip().lower() in {
+        "digital_pdf",
+        "table_dense",
+        "scanned_pdf",
+        "handwritten",
+        "chart_or_figure",
+        "forms_or_checkboxes",
+    }
+
+
+def _local_image_fast_accept_decision(
+    *,
+    goal: str,
+    doc_class: str,
+    score: float,
+    numeric_fidelity_score: float,
+    chars: int,
+    structure_score: float,
+) -> tuple[bool, str]:
+    if _goal_requests_layout_preservation(goal):
+        return False, "explicit_layout_or_cleanup_request"
+    if score < float(_LOCAL_FAST_ACCEPT_THRESHOLDS["score"]):
+        return False, "score_below_threshold"
+    if numeric_fidelity_score < float(_LOCAL_FAST_ACCEPT_THRESHOLDS["numeric_fidelity_score"]):
+        return False, "numeric_fidelity_below_threshold"
+    if chars < int(_LOCAL_FAST_ACCEPT_THRESHOLDS["chars"]):
+        return False, "chars_below_threshold"
+    if structure_score >= float(_LOCAL_FAST_ACCEPT_THRESHOLDS["structure_score"]):
+        return True, "structure_threshold_met"
+    if not _doc_class_is_layout_heavy(doc_class):
+        return True, "non_layout_heavy_doc_class"
+    return False, "layout_heavy_structure_below_threshold"
+
+
+def _should_run_semantic_cleanup(
+    best: Dict[str, Any],
+    *,
+    goal: str,
+    route_mode: str,
+    gb10_enabled: bool,
+    doc_class: str,
+) -> tuple[bool, str]:
+    timing_meta = dict(best.get("timing_meta") or {})
+    if bool(timing_meta.get("fast_accept_applied")):
+        return False, "fast_accept_applied"
+    if not DEFAULT_OCR_PHASE2_ENABLED:
+        return False, "phase2_disabled"
+    if not DEFAULT_GB10_QWEN_CLEANUP:
+        return False, "qwen_cleanup_disabled"
+    if not gb10_enabled:
+        return False, "gb10_disabled"
+    if str(route_mode or "").strip().lower() == "balanced":
+        return False, "balanced_route"
+    if not _needs_semantic_cleanup(goal):
+        return False, "goal_not_cleanup_specific"
+    quality = dict(best.get("quality") or {})
+    score = float(quality.get("score") or 0.0)
+    structure = float(quality.get("structure_score") or 0.0)
+    numeric = float(quality.get("numeric_fidelity_score") or 0.0)
+    chars = int(quality.get("chars") or len(str(best.get("text") or best.get("markdown") or "")))
+    if score >= 0.45 and structure >= 0.18 and chars >= 120:
+        return False, "already_good_enough"
+    if score >= 0.34 and structure >= 0.08 and numeric >= 0.50 and chars >= 100:
+        return False, "no_measurable_gain_expected"
+    if doc_class in {"photo", "scanned_pdf", "handwritten"} and not any(
+        _goal_has_keyword(goal, keyword) for keyword in ("markdown", "preserve headings", "preserve bullets", "multi-column")
+    ):
+        return False, "visual_doc_without_explicit_cleanup_request"
+    return True, "cleanup_candidate"
 
 
 def _select_engine(goal: str, path: Path) -> Tuple[str, str]:
@@ -2116,6 +2393,8 @@ def _normalize_ocr_payload(
     phase2_meta = dict(payload.get("phase2") or {})
     verification = _phase2_verification_status(finance_consistency, finbert_eval, table_reconstruction)
     attempts_out = list(attempts or payload.get("attempts") or [])
+    latency_ms = _coerce_ms(payload.get("latency_ms"))
+    latency_breakdown = _finalize_latency_breakdown(payload.get("latency_breakdown"), total_ms=latency_ms)
     ensemble = {
         "engines_considered": list(engine_chain),
         "winner": str(payload.get("engine") or ""),
@@ -2149,6 +2428,18 @@ def _normalize_ocr_payload(
             "engine_chain": list(engine_chain),
             "attempts": attempts_out,
             "fallback_reason": fallback_reason or str(payload.get("fallback_reason") or ""),
+            "latency_ms": latency_ms,
+            "latency_breakdown": latency_breakdown,
+            "selected_preprocess": str(payload.get("selected_preprocess") or ""),
+            "timing_meta": _build_timing_meta(
+                payload.get("timing_meta"),
+                engine_selected=str(payload.get("engine") or ""),
+                selected_preprocess=str(payload.get("selected_preprocess") or ""),
+                phase2_enabled=bool(phase2.get("enabled")),
+                self_consistency_used=bool(ensemble.get("self_consistency_used")),
+                region_retry_count=int(ensemble.get("region_retry_count") or 0),
+                engine_chain_length=len(engine_chain),
+            ),
             "document_features": dict(document_features or payload.get("document_features") or {}),
             "layout_regions": list((document_features or payload.get("document_features") or {}).get("layout_regions") or payload.get("layout_regions") or []),
             "visual_controls": list(visual_controls or payload.get("visual_controls") or []),
@@ -2186,6 +2477,15 @@ def _run_engine_once(
     start = time.perf_counter()
     if engine == "native_pdf_text":
         result = _native_pdf_text_extract(path, max_pages=max_pages, max_chars=max_chars)
+    elif engine == "local_image_best":
+        result = _local_image_best_extract(
+            path,
+            goal,
+            max_chars=max_chars,
+            max_pages=max_pages,
+            route_mode=route_mode,
+            use_gateway=use_gateway,
+        )
     elif engine == "tesseract":
         result = _ocr_pdf_local(path, "tesseract", goal, max_pages=max_pages, max_chars=max_chars) if path.suffix.lower() == ".pdf" else _tesseract_ocr(path, max_chars=max_chars)
     elif engine == "rapidocr":
@@ -2205,10 +2505,21 @@ def _run_engine_once(
     elapsed_ms = round((time.perf_counter() - start) * 1000.0, 2)
     result = dict(result or {})
     result["latency_ms"] = elapsed_ms
+    result["latency_breakdown"] = _finalize_latency_breakdown(result.get("latency_breakdown"), total_ms=elapsed_ms)
     result.setdefault("engine", engine)
     result.setdefault("model", str(result.get("model") or ""))
     result.setdefault("source_path", str(path))
     result.setdefault("page_confidence", result.get("confidence"))
+    result["selected_preprocess"] = str(result.get("selected_preprocess") or "")
+    result["timing_meta"] = _build_timing_meta(
+        result.get("timing_meta"),
+        engine_selected=str(result.get("engine") or engine),
+        selected_preprocess=str(result.get("selected_preprocess") or ""),
+        phase2_enabled=bool(DEFAULT_OCR_PHASE2_ENABLED),
+        self_consistency_used=bool((result.get("phase2") or {}).get("self_consistency_used")),
+        region_retry_count=int((result.get("phase2") or {}).get("region_retry_count") or 0),
+        engine_chain_length=1,
+    )
     if result.get("ok"):
         result["semantic_diff"] = _semantic_diff_check(
             str(result.get("source_path") or path),
@@ -2280,6 +2591,10 @@ def _remote_ocr_via_http(
         "quality": dict(payload.get("quality") or {}),
         "engine_chain": list(payload.get("engine_chain") or []),
         "fallback_reason": str(payload.get("fallback_reason") or ""),
+        "latency_ms": _coerce_ms(payload.get("latency_ms")),
+        "latency_breakdown": _clone_latency_breakdown(payload.get("latency_breakdown")),
+        "selected_preprocess": str(payload.get("selected_preprocess") or ""),
+        "timing_meta": dict(payload.get("timing_meta") or {}),
     }
 
 
@@ -2337,6 +2652,10 @@ def _gateway_ocr_via_http(
         "quality": dict(payload.get("quality") or {}),
         "engine_chain": list(payload.get("engine_chain") or []),
         "fallback_reason": str(payload.get("fallback_reason") or ""),
+        "latency_ms": _coerce_ms(payload.get("latency_ms")),
+        "latency_breakdown": _clone_latency_breakdown(payload.get("latency_breakdown")),
+        "selected_preprocess": str(payload.get("selected_preprocess") or ""),
+        "timing_meta": dict(payload.get("timing_meta") or {}),
     }
 
 
@@ -2665,10 +2984,134 @@ def _run_gb10_primary(
         if fallback.get("ok"):
             fallback["engine"] = "gb10_qwen_ocr"
             fallback["route"] = "gb10_fallback"
-            fallback["reason"] = f"{plan['reason']}_primary_failed"
-            fallback["primary_error"] = primary_result.get("error")
-            return fallback
+        fallback["reason"] = f"{plan['reason']}_primary_failed"
+        fallback["primary_error"] = primary_result.get("error")
+        return fallback
     return primary_result
+
+
+def _local_image_best_extract(
+    path: Path,
+    goal: str,
+    *,
+    max_chars: int,
+    max_pages: int,
+    route_mode: str,
+    use_gateway: bool,
+) -> Dict[str, Any]:
+    started = time.perf_counter()
+    candidate_attempts: list[Dict[str, Any]] = []
+    best: Dict[str, Any] = {}
+    best_score = -1.0
+    doc_class = _classify_doc_type(path, goal, document_features={})
+    fast_accept_applied = False
+    fast_accept_reason = "not_evaluated"
+    second_local_engine_skipped = False
+    selected_preprocess = ""
+    for idx, candidate_engine in enumerate(("rapidocr", "tesseract")):
+        row = _run_engine_once(
+            path,
+            candidate_engine,
+            goal,
+            max_chars=max_chars,
+            max_pages=max_pages,
+            route_mode=route_mode,
+            use_gateway=use_gateway,
+        )
+        quality = dict(row.get("quality") or {})
+        score = float(quality.get("score") or 0.0)
+        chars = int(quality.get("chars") or len(str(row.get("text") or "")))
+        numeric_fidelity_score = float(quality.get("numeric_fidelity_score") or 0.0)
+        structure_score = float(quality.get("structure_score") or 0.0)
+        candidate_attempts.append(
+            {
+                "pass": 1,
+                "engine": str(row.get("engine") or candidate_engine),
+                "model": str(row.get("model") or ""),
+                "ok": bool(row.get("ok")),
+                "latency_ms": float(row.get("latency_ms") or 0.0),
+                "chars": chars,
+                "confidence": row.get("confidence"),
+                "score": score,
+                "structure_score": structure_score,
+                "numeric_fidelity_score": numeric_fidelity_score,
+                "fallback_reason": str(row.get("error") or row.get("fallback_reason") or ""),
+                "replaced_regions": int(((row.get("phase2") or {}) if isinstance(row.get("phase2"), dict) else {}).get("region_retry_count") or 0),
+                "stop_reason": "",
+                "selected_preprocess": str(row.get("selected_preprocess") or ""),
+                "latency_breakdown": _clone_latency_breakdown(row.get("latency_breakdown")),
+                "attempt_role": "primary" if idx == 0 else "fallback_chain",
+            }
+        )
+        if row.get("ok") and score >= best_score:
+            best = row
+            best_score = score
+            selected_preprocess = str(row.get("selected_preprocess") or selected_preprocess or "")
+        if idx == 0:
+            should_accept, reason = _local_image_fast_accept_decision(
+                goal=goal,
+                doc_class=doc_class,
+                score=score,
+                numeric_fidelity_score=numeric_fidelity_score,
+                chars=chars,
+                structure_score=structure_score,
+            )
+            fast_accept_reason = reason
+            if row.get("ok") and should_accept:
+                fast_accept_applied = True
+                second_local_engine_skipped = True
+                best = row
+                best_score = score
+                break
+    total_ms = round((time.perf_counter() - started) * 1000.0, 2)
+    if not best:
+        return {
+            "ok": False,
+            "engine": "local_image_best",
+            "error": "local_image_best_failed",
+            "attempts": candidate_attempts,
+            "latency_ms": total_ms,
+            "latency_breakdown": _aggregate_route_latency(candidate_attempts, total_ms=total_ms),
+            "route": "local_image_best",
+        }
+    out = dict(best)
+    out["engine"] = "local_image_best"
+    out["primary_engine"] = str(best.get("engine") or "")
+    out["selected_engine"] = str(best.get("engine") or "")
+    out["route"] = "local_image_best"
+    out["attempts"] = candidate_attempts
+    out["selected_preprocess"] = selected_preprocess or str(best.get("selected_preprocess") or "")
+    out["fast_accept_applied"] = bool(fast_accept_applied)
+    out["fast_accept_reason"] = str(fast_accept_reason or "")
+    out["fast_accept_thresholds"] = dict(_LOCAL_FAST_ACCEPT_THRESHOLDS)
+    out["second_local_engine_skipped"] = bool(second_local_engine_skipped)
+    out["local_image_candidates"] = [
+        {
+            "engine": str(item.get("engine") or ""),
+            "ok": bool(item.get("ok")),
+            "latency_ms": float(item.get("latency_ms") or 0.0),
+            "score": float(item.get("score") or 0.0),
+            "selected_preprocess": str(item.get("selected_preprocess") or ""),
+            "fallback_reason": str(item.get("fallback_reason") or ""),
+        }
+        for item in candidate_attempts
+    ]
+    out["latency_ms"] = total_ms
+    out["latency_breakdown"] = _aggregate_route_latency(candidate_attempts, total_ms=total_ms)
+    out["timing_meta"] = _build_timing_meta(
+        out.get("timing_meta"),
+        engine_selected="local_image_best",
+        selected_preprocess=out["selected_preprocess"],
+        phase2_enabled=bool(DEFAULT_OCR_PHASE2_ENABLED),
+        self_consistency_used=False,
+        region_retry_count=0,
+        engine_chain_length=2,
+    )
+    out["timing_meta"]["fast_accept_applied"] = bool(fast_accept_applied)
+    out["timing_meta"]["fast_accept_reason"] = str(fast_accept_reason or "")
+    out["timing_meta"]["fast_accept_thresholds"] = dict(_LOCAL_FAST_ACCEPT_THRESHOLDS)
+    out["timing_meta"]["second_local_engine_skipped"] = bool(second_local_engine_skipped)
+    return out
 
 
 def _ocr_pdf_local(
@@ -2679,7 +3122,10 @@ def _ocr_pdf_local(
     max_chars: int,
 ) -> Dict[str, Any]:
     try:
+        overall_start = time.perf_counter()
+        render_started = time.perf_counter()
         page_paths = _render_pdf_pages(path, max_pages)
+        render_ms = round((time.perf_counter() - render_started) * 1000.0, 2)
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -2688,12 +3134,16 @@ def _ocr_pdf_local(
     confidence_regions: list[Dict[str, Any]] = []
     chosen_engine = engine
     reason = ""
+    selected_preprocess = ""
+    aggregate_breakdown = _empty_latency_breakdown()
+    selection_probe_overhead_ms = 0.0
 
     if engine == "auto":
         preferred, reason = _select_engine(goal, path)
         chosen_engine = preferred
         if preferred == "tesseract" and page_paths:
             first = _tesseract_ocr(page_paths[0], max_chars=max_chars)
+            selection_probe_overhead_ms += _latency_breakdown_total(first.get("latency_breakdown")) or _coerce_ms(first.get("latency_ms"))
             if not first.get("ok") or first.get("confidence", 0.0) < 0.55 or len(first.get("text", "")) < 40:
                 chosen_engine = "rapidocr"
                 reason = "tesseract_low_confidence"
@@ -2709,6 +3159,8 @@ def _ocr_pdf_local(
             conf = res.get("confidence")
             if conf is not None:
                 confidences.append(float(conf))
+            selected_preprocess = selected_preprocess or str(res.get("selected_preprocess") or "")
+            aggregate_breakdown = _merge_latency_breakdowns(aggregate_breakdown, res.get("latency_breakdown"))
             for region in list(res.get("confidence_map_regions") or []):
                 row = dict(region or {})
                 row["page"] = page_index
@@ -2723,6 +3175,7 @@ def _ocr_pdf_local(
     markdown = _normalize_markdown_layout("\n\n".join(t for t in texts if t), max_chars=max_chars)
     text = _normalize_text(markdown, max_chars=max_chars)
     avg_conf = sum(confidences) / len(confidences) if confidences else None
+    total_ms = round((time.perf_counter() - overall_start) * 1000.0, 2)
     return {
         "ok": bool(text),
         "engine": chosen_engine,
@@ -2734,8 +3187,74 @@ def _ocr_pdf_local(
         "confidence_map_regions": sorted(confidence_regions, key=lambda row: float(row.get("conf", 1.0)))[
             : DEFAULT_OCR_PHASE2_REGION_RETRY_MAX
         ],
+        "selected_preprocess": selected_preprocess or "pdf_render",
+        "latency_breakdown": _finalize_latency_breakdown(
+            {
+                "model_load_overhead_ms": aggregate_breakdown.get("model_load_overhead_ms"),
+                "preprocessing_overhead_ms": round(render_ms + aggregate_breakdown.get("preprocessing_overhead_ms", 0.0), 2),
+                "ocr_engine_time_ms": aggregate_breakdown.get("ocr_engine_time_ms"),
+                "fallback_or_chaining_overhead_ms": round(
+                    selection_probe_overhead_ms + aggregate_breakdown.get("fallback_or_chaining_overhead_ms", 0.0),
+                    2,
+                ),
+            },
+            total_ms=total_ms,
+        ),
+        "timing_meta": _build_timing_meta(
+            engine_selected=chosen_engine,
+            selected_preprocess=selected_preprocess or "pdf_render",
+            phase2_enabled=bool(DEFAULT_OCR_PHASE2_ENABLED),
+            self_consistency_used=bool(aggregate_breakdown.get("fallback_or_chaining_overhead_ms", 0.0)),
+            region_retry_count=0,
+            engine_chain_length=1,
+        ),
         "route": "local",
     }
+
+
+def _aggregate_route_latency(attempts: list[Dict[str, Any]], *, total_ms: float) -> Dict[str, float]:
+    aggregated = _empty_latency_breakdown()
+    primary_consumed = False
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        attempt_total = _coerce_ms(attempt.get("latency_ms"))
+        attempt_breakdown = _clone_latency_breakdown(attempt.get("latency_breakdown"))
+        role = str(attempt.get("attempt_role") or "").strip().lower()
+        if role == "primary" and not primary_consumed:
+            primary_consumed = True
+            aggregated["model_load_overhead_ms"] = round(
+                aggregated["model_load_overhead_ms"] + attempt_breakdown.get("model_load_overhead_ms", 0.0), 2
+            )
+            aggregated["preprocessing_overhead_ms"] = round(
+                aggregated["preprocessing_overhead_ms"] + attempt_breakdown.get("preprocessing_overhead_ms", 0.0), 2
+            )
+            aggregated["ocr_engine_time_ms"] = round(
+                aggregated["ocr_engine_time_ms"] + attempt_breakdown.get("ocr_engine_time_ms", 0.0), 2
+            )
+            base_classified = round(
+                attempt_breakdown.get("model_load_overhead_ms", 0.0)
+                + attempt_breakdown.get("preprocessing_overhead_ms", 0.0)
+                + attempt_breakdown.get("ocr_engine_time_ms", 0.0)
+                + attempt_breakdown.get("fallback_or_chaining_overhead_ms", 0.0),
+                2,
+            )
+            overflow = round(max(0.0, attempt_total - base_classified), 2)
+            if attempt_breakdown.get("fallback_or_chaining_overhead_ms", 0.0) or overflow:
+                aggregated["fallback_or_chaining_overhead_ms"] = round(
+                    aggregated["fallback_or_chaining_overhead_ms"]
+                    + attempt_breakdown.get("fallback_or_chaining_overhead_ms", 0.0)
+                    + overflow,
+                    2,
+                )
+            continue
+        if attempt_total <= 0.0:
+            attempt_total = _latency_breakdown_total(attempt_breakdown)
+        aggregated["fallback_or_chaining_overhead_ms"] = round(
+            aggregated["fallback_or_chaining_overhead_ms"] + attempt_total,
+            2,
+        )
+    return _finalize_latency_breakdown(aggregated, total_ms=total_ms)
 
 
 def _run_policy_route(
@@ -2751,6 +3270,7 @@ def _run_policy_route(
     use_gateway: bool = DEFAULT_GB10_OCR_USE_GATEWAY,
     region_retry_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    route_started = time.perf_counter()
     document_features = ocr_local_inference.classify_document_features(path, goal=goal, max_pages=max_pages)
     visual_controls = list(document_features.get("visual_controls") or [])
     feature_detection = {
@@ -2777,6 +3297,8 @@ def _run_policy_route(
     phase2_stop_reason = ""
     region_retry_fragments: list[Dict[str, Any]] = []
     retry_policy = _parse_region_retry_policy(region_retry_policy)
+    primary_attempt_emitted = False
+    local_router_accepted = False
     for pass_idx in range(max_passes):
         passes_run = pass_idx + 1
         pass_best = best_score
@@ -2784,6 +3306,21 @@ def _run_policy_route(
             row = _run_engine_once(path, engine, goal, max_chars=max_chars, max_pages=max_pages, route_mode=route_mode, use_gateway=use_gateway)
             quality = dict(row.get("quality") or {})
             row_phase2 = dict(row.get("phase2") or {})
+            row_breakdown = _clone_latency_breakdown(row.get("latency_breakdown"))
+            primary_candidate = (
+                not primary_attempt_emitted
+                and (
+                    bool(row.get("ok"))
+                    or (
+                        row_breakdown.get("model_load_overhead_ms", 0.0)
+                        + row_breakdown.get("preprocessing_overhead_ms", 0.0)
+                        + row_breakdown.get("ocr_engine_time_ms", 0.0)
+                    )
+                    > 0.0
+                    or _coerce_ms(row.get("latency_ms")) >= 5.0
+                )
+            )
+            attempt_role = "primary" if primary_candidate else "fallback_chain"
             attempt = {
                 "pass": pass_idx + 1,
                 "engine": str(row.get("engine") or engine),
@@ -2798,7 +3335,12 @@ def _run_policy_route(
                 "fallback_reason": str(row.get("error") or row.get("fallback_reason") or ""),
                 "replaced_regions": int(row_phase2.get("region_retry_count") or 0),
                 "stop_reason": str(row_phase2.get("stop_reason") or ""),
+                "selected_preprocess": str(row.get("selected_preprocess") or ""),
+                "latency_breakdown": row_breakdown,
+                "attempt_role": attempt_role,
             }
+            if attempt_role == "primary":
+                primary_attempt_emitted = True
             attempts.append(attempt)
             score = float(quality.get("score") or 0.0)
             if row.get("ok"):
@@ -2806,12 +3348,20 @@ def _run_policy_route(
             if row.get("ok") and score > best_score:
                 best = row
                 best_score = score
+            if str(row.get("engine") or engine) == "local_image_best" and row.get("ok"):
+                best = row
+                best_score = score
+                local_router_accepted = True
+                phase2_stop_reason = "local_image_router_accepted"
+                break
             if row.get("ok") and score >= target_score and float(quality.get("numeric_fidelity_score") or 0.0) >= 0.50:
                 best = row
                 best_score = score
                 break
             if not row.get("ok") and not fallback_reason:
                 fallback_reason = str(row.get("error") or "")
+        if local_router_accepted:
+            break
         if best and best_score >= target_score and float((best.get("quality") or {}).get("numeric_fidelity_score") or 0.0) >= 0.50:
             break
         improvement = best_score - pass_best
@@ -2826,6 +3376,8 @@ def _run_policy_route(
                     "fallback_reason": phase2_stop_reason,
                     "replaced_regions": 0,
                     "stop_reason": phase2_stop_reason,
+                    "attempt_role": "phase2_stop",
+                    "latency_breakdown": _empty_latency_breakdown(),
                 }
             )
             break
@@ -2900,6 +3452,8 @@ def _run_policy_route(
                 "fallback_reason": str(voted.get("error") or ""),
                 "replaced_regions": 0,
                 "stop_reason": "",
+                "attempt_role": "ensemble_vote",
+                "latency_breakdown": _empty_latency_breakdown(),
             }
         )
         vote_score = float(vote_quality.get("score") or 0.0)
@@ -2907,7 +3461,14 @@ def _run_policy_route(
             best = voted
             best_score = vote_score
 
-    if best and consensus and route_mode != "balanced":
+    cleanup_allowed, cleanup_reason = _should_run_semantic_cleanup(
+        best,
+        goal=goal,
+        route_mode=route_mode,
+        gb10_enabled=gb10_enabled,
+        doc_class=doc_class,
+    ) if best else (False, "no_best_result")
+    if best and cleanup_allowed:
         best_quality = dict(best.get("quality") or {})
         if float(best_quality.get("structure_score") or 0.0) < 0.55:
             cleanup = _run_engine_once(path, "gb10_qwen_ocr", goal, max_chars=max_chars, max_pages=max_pages, route_mode=route_mode, use_gateway=use_gateway)
@@ -2927,12 +3488,35 @@ def _run_policy_route(
                     "fallback_reason": "consensus_cleanup",
                     "replaced_regions": 0,
                     "stop_reason": "",
+                    "selected_preprocess": str(cleanup.get("selected_preprocess") or ""),
+                    "latency_breakdown": _clone_latency_breakdown(cleanup.get("latency_breakdown")),
+                    "attempt_role": "cleanup",
                 }
             )
             if cleanup.get("ok") and float(cleanup_quality.get("score") or 0.0) >= best_score:
                 cleanup["fallback_reason"] = "consensus_cleanup"
                 best = cleanup
                 best_score = float(cleanup_quality.get("score") or 0.0)
+    elif best:
+        attempts.append(
+            {
+                "pass": passes_run,
+                "engine": "cleanup_skipped",
+                "ok": True,
+                "latency_ms": 0.0,
+                "chars": int(((best.get("quality") or {}) if isinstance(best.get("quality"), dict) else {}).get("chars") or 0),
+                "confidence": best.get("confidence"),
+                "score": float(((best.get("quality") or {}) if isinstance(best.get("quality"), dict) else {}).get("score") or 0.0),
+                "structure_score": float(((best.get("quality") or {}) if isinstance(best.get("quality"), dict) else {}).get("structure_score") or 0.0),
+                "numeric_fidelity_score": float(((best.get("quality") or {}) if isinstance(best.get("quality"), dict) else {}).get("numeric_fidelity_score") or 0.0),
+                "fallback_reason": cleanup_reason,
+                "replaced_regions": 0,
+                "stop_reason": cleanup_reason,
+                "selected_preprocess": str(best.get("selected_preprocess") or ""),
+                "latency_breakdown": _empty_latency_breakdown(),
+                "attempt_role": "cleanup_skipped",
+            }
+        )
 
     if (
         DEFAULT_OCR_PHASE2_ENABLED
@@ -3003,6 +3587,9 @@ def _run_policy_route(
                             "fallback_reason": str(retry_row.get("error") or ""),
                             "replaced_regions": 0,
                             "stop_reason": "",
+                            "selected_preprocess": str(retry_row.get("selected_preprocess") or ""),
+                            "latency_breakdown": _clone_latency_breakdown(retry_row.get("latency_breakdown")),
+                            "attempt_role": "region_retry",
                         }
                     )
                     if retry_row.get("ok"):
@@ -3041,6 +3628,8 @@ def _run_policy_route(
                         "fallback_reason": "confidence_map_region_retry",
                         "replaced_regions": len(list(merged_payload.get("replaced_regions") or [])),
                         "stop_reason": "",
+                        "attempt_role": "region_retry_merge",
+                        "latency_breakdown": _empty_latency_breakdown(),
                     }
                 )
                 if float(merged_quality.get("score") or 0.0) > best_score + 0.01:
@@ -3120,6 +3709,19 @@ def _run_policy_route(
             or ([str(best.get("engine") or "")] if str(best.get("engine") or "") else [])
         ),
     }
+    route_elapsed_ms = round((time.perf_counter() - route_started) * 1000.0, 2)
+    best["latency_ms"] = route_elapsed_ms
+    best["latency_breakdown"] = _aggregate_route_latency(attempts, total_ms=route_elapsed_ms)
+    best["selected_preprocess"] = str(best.get("selected_preprocess") or "")
+    best["timing_meta"] = _build_timing_meta(
+        best.get("timing_meta"),
+        engine_selected=str(best.get("engine") or ""),
+        selected_preprocess=str(best.get("selected_preprocess") or ""),
+        phase2_enabled=bool(DEFAULT_OCR_PHASE2_ENABLED),
+        self_consistency_used=bool(best["phase2"].get("self_consistency_used")),
+        region_retry_count=int(best["phase2"].get("region_retry_count") or 0),
+        engine_chain_length=len(chain),
+    )
 
     return _normalize_ocr_payload(
         best,
@@ -3135,6 +3737,7 @@ def _run_policy_route(
 
 
 def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
+    overall_started = time.perf_counter()
     path_str = (payload.get("path") or "").strip()
     if not path_str:
         return {"ok": False, "error": "path_required"}
@@ -3169,6 +3772,7 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
         forced_engine = "" if engine == "auto" or engine == "gb10_auto" else engine
         gb10_attempt = _run_gb10_primary(path, goal, max_chars=max_chars, max_pages=max_pages, forced_engine=forced_engine, route_mode=route_mode, use_gateway=use_gateway)
         if gb10_attempt.get("ok"):
+            gb10_attempt["latency_ms"] = _coerce_ms(gb10_attempt.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
             return _normalize_ocr_payload(
                 gb10_attempt,
                 route_mode=route_mode,
@@ -3181,8 +3785,9 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
                 feature_detection=feature_detection,
             )
         if engine in gb10_aliases and engine not in {"gb10_auto"}:
+            failed_payload = {"ok": False, "engine": engine, "error": f"gb10_ocr_failed:{gb10_attempt.get('error', 'unknown')}", "latency_ms": round((time.perf_counter() - overall_started) * 1000.0, 2)}
             return _normalize_ocr_payload(
-                {"ok": False, "engine": engine, "error": f"gb10_ocr_failed:{gb10_attempt.get('error', 'unknown')}"},
+                failed_payload,
                 route_mode=route_mode,
                 doc_class=doc_class,
                 engine_chain=[engine],
@@ -3212,6 +3817,7 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
         if max_pages < 1:
             return {"ok": False, "error": "max_pages_invalid"}
         local_pdf = _native_pdf_text_extract(path, max_pages=max_pages, max_chars=max_chars) if engine == "native_pdf_text" else _ocr_pdf_local(path, engine, goal, max_pages, max_chars)
+        local_pdf["latency_ms"] = _coerce_ms(local_pdf.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
         return _normalize_ocr_payload(
             local_pdf,
             route_mode=route_mode,
@@ -3241,12 +3847,14 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
         result = _tesseract_ocr(path, max_chars=max_chars)
         if result.get("ok"):
             result["reason"] = "forced_tesseract"
+        result["latency_ms"] = _coerce_ms(result.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
         return _normalize_ocr_payload(result, route_mode=route_mode, doc_class=doc_class, engine_chain=["tesseract"], document_features=document_features, visual_controls=visual_controls, feature_detection=feature_detection)
 
     if engine == "rapidocr":
         result = _rapidocr_ocr(path, max_chars=max_chars)
         if result.get("ok"):
             result["reason"] = "forced_rapidocr"
+        result["latency_ms"] = _coerce_ms(result.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
         return _normalize_ocr_payload(result, route_mode=route_mode, doc_class=doc_class, engine_chain=["rapidocr"], document_features=document_features, visual_controls=visual_controls, feature_detection=feature_detection)
 
     preferred, reason = _select_engine(goal, path)
@@ -3254,21 +3862,25 @@ def ocr_dual(payload: Dict[str, Any]) -> Dict[str, Any]:
         result = _rapidocr_ocr(path, max_chars=max_chars)
         if result.get("ok"):
             result["reason"] = reason
+            result["latency_ms"] = _coerce_ms(result.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
             return _normalize_ocr_payload(result, route_mode=route_mode, doc_class=doc_class, engine_chain=["rapidocr", "tesseract"], document_features=document_features, visual_controls=visual_controls, feature_detection=feature_detection)
 
     result = _tesseract_ocr(path, max_chars=max_chars)
     if result.get("ok"):
         if result.get("confidence", 0.0) >= 0.55 and len(result.get("text", "")) >= 40:
             result["reason"] = reason
+            result["latency_ms"] = _coerce_ms(result.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
             return _normalize_ocr_payload(result, route_mode=route_mode, doc_class=doc_class, engine_chain=["tesseract", "rapidocr"], document_features=document_features, visual_controls=visual_controls, feature_detection=feature_detection)
 
     rapid_result = _rapidocr_ocr(path, max_chars=max_chars)
     if rapid_result.get("ok"):
         rapid_result["reason"] = "tesseract_low_confidence"
+        rapid_result["latency_ms"] = _coerce_ms(rapid_result.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
         return _normalize_ocr_payload(rapid_result, route_mode=route_mode, doc_class=doc_class, engine_chain=["tesseract", "rapidocr"], fallback_reason="tesseract_low_confidence", document_features=document_features, visual_controls=visual_controls, feature_detection=feature_detection)
 
     if result.get("ok"):
         result["reason"] = "rapidocr_unavailable_fallback"
+    result["latency_ms"] = _coerce_ms(result.get("latency_ms")) or round((time.perf_counter() - overall_started) * 1000.0, 2)
     return _normalize_ocr_payload(result, route_mode=route_mode, doc_class=doc_class, engine_chain=["tesseract"], fallback_reason="rapidocr_unavailable_fallback", document_features=document_features, visual_controls=visual_controls, feature_detection=feature_detection)
 
 
