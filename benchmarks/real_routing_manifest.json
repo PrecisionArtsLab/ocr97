@@ -1,0 +1,105 @@
+{
+  "name": "ocr97_real_routing_validation",
+  "description": "Real document artifacts for end-to-end auto-routing validation. Accuracy-scored and routing-smoke cases are reported separately.",
+  "corpus_type": "mixed_real_scans",
+  "corpus_kind": "real",
+  "cases": [
+    {
+      "id": "sroie_phone_receipt_0000",
+      "label": "SROIE real photographed receipt 0000",
+      "modality": "phone_photograph",
+      "source_path": "artifacts/grade_reeval/phase1/sroie_parallel_50row/images/0000_X00016469670.jpg",
+      "validation": "sroie_fields",
+      "goal": "Extract exact receipt fields: company, date, total, and address.",
+      "expected": {
+        "company": "OJC MARKETING SDN BHD",
+        "date": "15/01/2019",
+        "address": "NO 2 & 4, JALAN BAYU 4, BANDAR SERI ALAM, B1750 MASAI, JOHOR",
+        "total": "193.00"
+      }
+    },
+    {
+      "id": "sroie_phone_receipt_0001",
+      "label": "SROIE real photographed receipt 0001",
+      "modality": "phone_photograph",
+      "source_path": "artifacts/grade_reeval/phase1/sroie_parallel_50row/images/0001_X00016469671.jpg",
+      "validation": "sroie_fields",
+      "goal": "Extract exact receipt fields: company, date, total, and address.",
+      "expected": {
+        "company": "OJC MARKETING SDN BHD",
+        "date": "02/01/2019",
+        "address": "NO 2 & 4, JALAN BAYU 4, BANDAR SERI ALAM, 81750 MASAI, JOHOR",
+        "total": "170.00"
+      }
+    },
+    {
+      "id": "sroie_image_only_scanned_pdf",
+      "label": "SROIE real receipt embedded as an image-only PDF",
+      "modality": "scanned_pdf",
+      "source_path": "artifacts/grade_reeval/phase1/sroie_parallel_50row/images/0000_X00016469670.jpg",
+      "as_image_pdf": true,
+      "validation": "sroie_fields",
+      "goal": "This is a scanned image-only PDF. Extract exact receipt fields: company, date, total, and address.",
+      "expected": {
+        "company": "OJC MARKETING SDN BHD",
+        "date": "15/01/2019",
+        "address": "NO 2 & 4, JALAN BAYU 4, BANDAR SERI ALAM, B1750 MASAI, JOHOR",
+        "total": "193.00"
+      }
+    },
+    {
+      "id": "rvl_cdip_photocopied_form",
+      "label": "RVL-CDIP real scanned form",
+      "modality": "photocopy",
+      "hf_repo": "vaclavpechtor/rvl_cdip-small-200",
+      "hf_path": "train/form/0000968851.tif",
+      "validation": "nonempty",
+      "min_chars": 20,
+      "goal": "This is a photocopied form. Extract all readable text and preserve layout cues."
+    },
+    {
+      "id": "rvl_cdip_scanned_invoice",
+      "label": "RVL-CDIP real scanned invoice",
+      "modality": "scanned_document",
+      "hf_repo": "vaclavpechtor/rvl_cdip-small-200",
+      "hf_path": "train/invoice/0001139667.tif",
+      "validation": "nonempty",
+      "min_chars": 20,
+      "goal": "This is a scanned invoice. Extract all readable text, tables, and exact numeric values."
+    },
+    {
+      "id": "iam_real_handwriting_0000",
+      "label": "IAM real handwriting line 0000",
+      "modality": "handwriting",
+      "hf_repo": "Teklia/IAM-line",
+      "hf_parquet_path": "data/validation.parquet",
+      "row_index": 0,
+      "image_column": "image",
+      "text_column": "text",
+      "validation": "transcription",
+      "goal": "This is handwritten English. Transcribe it exactly without paraphrasing."
+    },
+    {
+      "id": "iam_real_handwriting_0001",
+      "label": "IAM real handwriting line 0001",
+      "modality": "handwriting",
+      "hf_repo": "Teklia/IAM-line",
+      "hf_parquet_path": "data/validation.parquet",
+      "row_index": 1,
+      "image_column": "image",
+      "text_column": "text",
+      "validation": "transcription",
+      "goal": "This is handwritten English. Transcribe it exactly without paraphrasing."
+    },
+    {
+      "id": "ultralytics_signed_document",
+      "label": "Real document containing a handwritten signature",
+      "modality": "signed_document",
+      "hf_repo": "Ultralytics/Signature",
+      "hf_path": "train/images/Frame_100.jpg",
+      "validation": "nonempty",
+      "min_chars": 20,
+      "goal": "This is a signed document. Extract all printed and handwritten text and note the presence of a signature."
+    }
+  ]
+}
