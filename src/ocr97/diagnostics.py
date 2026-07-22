@@ -8,16 +8,6 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from .engine_registry import (
-    engine_assets_required,
-    engine_model_dir,
-    engine_model_id,
-    engine_module_name,
-    engine_names,
-    engine_package_name,
-    engine_ready_override_env,
-    engine_is_optional,
-)
 from .paths import ensure_paths
 from .profiles import (
     AUTO_HARDWARE_PROFILE,
@@ -71,11 +61,26 @@ def module_status(module_name: str, package_name: str = "") -> Dict[str, Any]:
 
 
 def model_id(engine: str) -> str:
-    return engine_model_id(engine)
+    if engine == "gb10_paddleocr_vl":
+        return str(os.getenv("OCR97_PADDLEOCR_VL_MODEL_ID", "PaddleOCR-VL")).strip() or "PaddleOCR-VL"
+    if engine == "mineru2_5":
+        return str(os.getenv("OCR97_MINERU2_5_MODEL_ID", "opendatalab/MinerU")).strip() or "opendatalab/MinerU"
+    if engine == "olmocr2":
+        return str(os.getenv("OCR97_OLMOCR2_MODEL_ID", "allenai/olmOCR-2-7B")).strip() or "allenai/olmOCR-2-7B"
+    return ""
 
 
 def model_dir(engine: str) -> Path:
-    return engine_model_dir(engine)
+    if engine == "gb10_paddleocr_vl":
+        raw = str(os.getenv("OCR97_PADDLEOCR_VL_MODEL_DIR", "")).strip()
+        return Path(raw) if raw else Path.home() / ".cache" / "paddleocr_vl"
+    if engine == "mineru2_5":
+        raw = str(os.getenv("OCR97_MINERU2_5_MODEL_DIR", "")).strip()
+        return Path(raw) if raw else Path.home() / ".cache" / "mineru2_5"
+    if engine == "olmocr2":
+        raw = str(os.getenv("OCR97_OLMOCR2_MODEL_DIR", "")).strip()
+        return Path(raw) if raw else Path.home() / ".cache" / "olmocr2"
+    return Path.home() / ".cache" / "ocr97" / engine
 
 
 def has_model_assets(path: Path) -> bool:
@@ -109,12 +114,25 @@ def hash_dir_metadata(root: Path, *, limit: int = 3000) -> str:
 
 
 def engine_status(engine: str) -> Dict[str, Any]:
-    override_env = engine_ready_override_env(engine)
-    override = str(os.getenv(override_env, "")).strip().lower()
-    module_name = engine_module_name(engine)
+    module_map = {
+        "tesseract": "pytesseract",
+        "rapidocr": "rapidocr_onnxruntime",
+        "native_pdf_text": "fitz",
+        "local_image_preprocessed_best": "pytesseract",
+        "gb10_paddleocr_vl": "paddleocr",
+        "mineru2_5": "mineru",
+        "olmocr2": "olmocr",
+    }
+    override_map = {
+        "gb10_paddleocr_vl": "OCR97_OCR_ENGINE_PADDLEOCR_VL_READY",
+        "mineru2_5": "OCR97_OCR_ENGINE_MINERU2_5_READY",
+        "olmocr2": "OCR97_OCR_ENGINE_OLMOCR2_READY",
+    }
+    override = str(os.getenv(override_map.get(engine, ""), "")).strip().lower()
+    module_name = module_map.get(engine, "")
     module_ready = module_available(module_name) if module_name else False
     path = model_dir(engine)
-    assets_required = engine_assets_required(engine)
+    assets_required = engine in {"gb10_paddleocr_vl", "mineru2_5", "olmocr2"}
     assets_ready = has_model_assets(path) if assets_required else True
     if override in {"1", "true", "yes"}:
         ready = True
@@ -122,16 +140,6 @@ def engine_status(engine: str) -> Dict[str, Any]:
     elif override in {"0", "false", "no"}:
         ready = False
         reason = "override_not_ready"
-    elif engine == "gb10_qwen_ocr":
-        ready = remote_model_configured()
-        reason = "remote_model_endpoint_configured" if ready else "remote_model_endpoint_missing"
-    elif engine in {"local_image_best", "local_image_preprocessed_best"}:
-        rapid_ready = module_available("rapidocr_onnxruntime")
-        tess_ready = module_available("pytesseract")
-        pil_ready = module_available("PIL")
-        preprocess_ready = True if engine == "local_image_best" else pil_ready
-        ready = bool((rapid_ready or tess_ready) and preprocess_ready)
-        reason = "module_ready" if ready else ("pillow_missing" if not preprocess_ready else "module_or_assets_missing")
     else:
         ready = bool(module_ready and assets_ready)
         reason = "module_ready" if ready and not assets_required else ("module_and_assets_ready" if ready else "module_or_assets_missing")
@@ -190,17 +198,24 @@ def hardware_scaling_payload(engines: Dict[str, Dict[str, Any]]) -> Dict[str, An
         effective = CPU_HARDWARE_PROFILE
         reason = "portable_cpu_default"
 
-    baseline_lanes = [name for name in engine_names(include_optional=False)]
+    baseline_lanes = [
+        "native_pdf_text",
+        "tesseract",
+        "rapidocr",
+        "local_image_preprocessed_best",
+    ]
     optional_lanes = []
     if effective in {LOCAL_GPU_HARDWARE_PROFILE, WORKSTATION_HARDWARE_PROFILE}:
         optional_lanes.extend(
-            name for name in engine_names(include_optional=True) if engine_is_optional(name) and engines.get(name, {}).get("ready")
+            name
+            for name in ("gb10_paddleocr_vl", "mineru2_5", "olmocr2")
+            if engines.get(name, {}).get("ready")
         )
     if effective in {REMOTE_MODEL_HARDWARE_PROFILE, WORKSTATION_HARDWARE_PROFILE}:
         optional_lanes.extend(
             name
-            for name in engine_names(include_optional=True)
-            if engine_is_optional(name) and (engines.get(name, {}).get("ready") or remote_ready)
+            for name in ("gb10_paddleocr_vl", "mineru2_5", "olmocr2")
+            if engines.get(name, {}).get("ready") or remote_ready
         )
 
     return {
@@ -218,7 +233,15 @@ def hardware_scaling_payload(engines: Dict[str, Dict[str, Any]]) -> Dict[str, An
 
 def doctor_payload() -> Dict[str, Any]:
     paths = ensure_paths()
-    engines = {name: engine_status(name) for name in engine_names(include_optional=True)}
+    engines = {
+        "tesseract": engine_status("tesseract"),
+        "rapidocr": engine_status("rapidocr"),
+        "native_pdf_text": engine_status("native_pdf_text"),
+        "local_image_preprocessed_best": engine_status("local_image_preprocessed_best"),
+        "gb10_paddleocr_vl": engine_status("gb10_paddleocr_vl"),
+        "mineru2_5": engine_status("mineru2_5"),
+        "olmocr2": engine_status("olmocr2"),
+    }
     return {
         "ok": True,
         "diagnostic_mode": "lightweight_no_model_import",

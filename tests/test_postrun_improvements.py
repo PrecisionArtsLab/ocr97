@@ -91,6 +91,136 @@ print(json.dumps(payload["slo_policy"]["p95_caps_by_class"]))
     assert caps["semantic_cleanup"] == 1800000
 
 
+def test_lane_slo_gate_waits_for_minimum_sample_count():
+    from ocr97.gateway import _evaluate_lane_slo_gate
+
+    cold_timeout = {
+        "last_24h_count": 1,
+        "timeout_rate": 1.0,
+        "fallback_rate": 1.0,
+        "p95_latency_ms": 180000.0,
+    }
+    warming = _evaluate_lane_slo_gate(cold_timeout, p95_cap_ms=20000, min_samples=8)
+
+    assert warming["metrics_enforced"] is False
+    assert warming["timeout_rate_ok"] is True
+    assert warming["fallback_rate_ok"] is True
+    assert warming["p95_ok"] is True
+
+    steady_state = _evaluate_lane_slo_gate(
+        {**cold_timeout, "last_24h_count": 8},
+        p95_cap_ms=20000,
+        min_samples=8,
+    )
+
+    assert steady_state["metrics_enforced"] is True
+    assert steady_state["timeout_rate_ok"] is False
+    assert steady_state["fallback_rate_ok"] is False
+    assert steady_state["p95_ok"] is False
+
+
+def test_ollama_model_preflight_returns_all_matching_models(monkeypatch):
+    from ocr97 import dual_tool
+
+    class FakeResponse:
+        ok = True
+
+        def json(self):
+            return {
+                "models": [
+                    {"name": "qwen3-vl:32b"},
+                    {"name": "gemma3:12b"},
+                    {"name": "qwen2.5vl:7b"},
+                ]
+            }
+
+    monkeypatch.setattr(dual_tool.requests, "get", lambda *args, **kwargs: FakeResponse())
+
+    result = dual_tool._ollama_model_available(
+        "http://127.0.0.1:11435",
+        ["missing-vl:7b", "qwen3-vl:32b", "qwen2.5vl:7b"],
+    )
+
+    assert result["ok"] is True
+    assert result["available_model"] == "qwen3-vl:32b"
+    assert result["available_models"] == ["qwen3-vl:32b", "qwen2.5vl:7b"]
+
+
+def test_qwen_runner_skips_missing_model_and_fast_accepts(tmp_path, monkeypatch):
+    from ocr97 import dual_tool
+
+    image_path = tmp_path / "phone_photo.png"
+    image_path.write_bytes(b"not-a-real-image")
+    calls = []
+
+    monkeypatch.setattr(dual_tool, "DEFAULT_GB10_QWEN_OCR_MODEL", "missing-vl:7b")
+    monkeypatch.setattr(dual_tool, "DEFAULT_GB10_QWEN_OCR_FALLBACK_MODEL", "qwen3-vl:32b")
+    monkeypatch.setattr(dual_tool, "DEFAULT_GB10_QWEN_OLLAMA_URL", "http://127.0.0.1:11435")
+    monkeypatch.setattr(dual_tool, "DEFAULT_OCR_COMPAT_ENABLED", False)
+    monkeypatch.setattr(dual_tool, "DEFAULT_OCR_PHASE2_ENABLED", True)
+    monkeypatch.setattr(dual_tool, "DEFAULT_OCR_QWEN_SELF_CONSISTENCY_ENABLED", False)
+    monkeypatch.setattr(
+        dual_tool,
+        "_ollama_model_available",
+        lambda base_url, models: {
+            "ok": True,
+            "reason": "model_available",
+            "available_model": "qwen3-vl:32b",
+            "available_models": ["qwen3-vl:32b"],
+        },
+    )
+
+    strong_markdown = "\n".join(
+        [
+            "# INVOICE 2026",
+            "| Item | Qty | Price |",
+            "| --- | ---: | ---: |",
+            *[f"| Engine part {index} | {index} | ${index * 125}.00 |" for index in range(1, 14)],
+            "Total: $11375.00",
+            "Payment terms: 30 days. Reference 987654321.",
+        ]
+    )
+
+    def fake_generate(image_path, prompt, model, *, base_url, lane):
+        calls.append({"model": model, "base_url": base_url, "lane": lane})
+        return {
+            "ok": True,
+            "engine": "gb10_qwen_ocr",
+            "model": model,
+            "markdown": strong_markdown,
+            "text": strong_markdown,
+            "route": lane,
+        }
+
+    monkeypatch.setattr(dual_tool, "_ollama_generate_with_image", fake_generate)
+
+    result = dual_tool._gb10_qwen_ocr(image_path, goal="literal OCR", max_chars=8000, max_pages=1)
+
+    assert result["ok"] is True
+    assert result["model"] == "qwen3-vl:32b"
+    assert [row["model"] for row in calls] == ["qwen3-vl:32b"]
+    assert result["model_preflight"][0]["available_models"] == ["qwen3-vl:32b"]
+
+
+def test_gateway_prewarm_model_selection_falls_back_when_preferred_is_missing(monkeypatch):
+    from ocr97 import gateway
+
+    class FakeResponse:
+        ok = True
+
+        def json(self):
+            return {"models": [{"name": "gemma3:12b"}, {"name": "qwen3-vl:32b"}]}
+
+    monkeypatch.setattr(gateway.requests, "get", lambda *args, **kwargs: FakeResponse())
+
+    selected = gateway._infer_ollama_model(
+        "http://127.0.0.1:11435",
+        preferred="qwen2.5vl:7b",
+    )
+
+    assert selected == "qwen3-vl:32b"
+
+
 def test_preprocessed_best_runs_original_first_then_remaining_variants_in_executor(tmp_path, monkeypatch):
     from ocr97 import gateway
 

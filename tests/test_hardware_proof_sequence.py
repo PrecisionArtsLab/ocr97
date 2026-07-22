@@ -5,23 +5,42 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+ENGINEERING_ROOT = Path(__file__).resolve().parents[2]
+if str(ENGINEERING_ROOT) not in sys.path:
+    sys.path.insert(0, str(ENGINEERING_ROOT))
+
+try:
+    from Sky.core import calendar_store
+    from Sky.services import test_run_reports as trr
+except ModuleNotFoundError:
+    calendar_store = None
+    trr = None
 
 from ocr97.hardware_escalation import decide_hardware_escalation
 from ocr97 import hardware_proof_scheduler as scheduler
 from ocr97 import hardware_proof_sequence as runner
 
 
+requires_sky = pytest.mark.skipif(
+    calendar_store is None or trr is None,
+    reason="Sky integration package is not available in the standalone OCR97 public repo environment.",
+)
+
+
 def _proc(returncode: int = 0, stdout: str = "ok", stderr: str = ""):
     return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def _isolated_store(monkeypatch, tmp_path):
+    monkeypatch.setattr(calendar_store, "STORE_PATH", tmp_path / "calendar_events.json")
+    monkeypatch.setattr(calendar_store, "LOG_DIR", tmp_path)
+    calendar_store._STORE_CACHE = None
+    calendar_store._STORE_MTIME_NS = None
 
 
 def _write_parent(path: str, payload: dict) -> None:
@@ -54,95 +73,12 @@ def _fake_runner(returncode: int = 0):
         if "capability_audit" in text:
             json_output = _extract_arg(text, "--json-output")
             md_output = _extract_arg(text, "--output")
-            _write_parent(
-                json_output,
-                {
-                    "result_file_count": 2,
-                    "weak_case_count": 0,
-                    "reason_counts": {},
-                    "recommendations": ["Keep measuring."],
-                },
-            )
+            _write_parent(json_output, {"result_file_count": 2, "weak_case_count": 0, "reason_counts": {}, "recommendations": ["Keep measuring."]})
             Path(md_output).parent.mkdir(parents=True, exist_ok=True)
             Path(md_output).write_text("# audit\n", encoding="utf-8")
         return _proc(returncode)
 
     return fake
-
-
-def _install_fake_sky(monkeypatch, tmp_path):
-    events: list[dict] = []
-    ledger: dict[str, dict] = {"projects": {}}
-
-    class CalendarConflictError(Exception):
-        pass
-
-    class CalendarValidationError(Exception):
-        pass
-
-    def _require_test_queue_fields(payload: dict) -> None:
-        if payload.get("test_queue"):
-            for field in ("project", "test_type", "capability", "verification_command", "report_path"):
-                if not str(payload.get(field) or "").strip():
-                    raise CalendarValidationError(f"test_queue_report_requirement_failed:{field}")
-
-    def create_event(payload: dict) -> dict:
-        _require_test_queue_fields(payload)
-        payload = dict(payload)
-        start = str(payload.get("start") or "")
-        end = str(payload.get("end") or "")
-        for existing in events:
-            if start < str(existing.get("end") or "") and end > str(existing.get("start") or ""):
-                raise CalendarConflictError("conflict")
-        events.append(payload)
-        return payload
-
-    def validate_test_queue_report_payload(payload: dict) -> dict:
-        required = ("project", "test_type", "capability", "verification_command", "report_path", "status")
-        missing = [field for field in required if not str(payload.get(field) or "").strip()]
-        return {"ok": not missing, "missing_fields": missing}
-
-    def record_test_run_report(payload: dict, root=None) -> dict:
-        project = str(payload.get("project") or "").strip() or "unknown"
-        project_row = ledger["projects"].setdefault(project, {})
-        project_row["latest_capability"] = str(payload.get("capability") or "")
-        project_row["latest_diagnostic"] = dict(payload.get("diagnostic") or {})
-        return {"ok": True, "project": project, "root": str(root or tmp_path / "sky_reports")}
-
-    def load_project_capability_ledger(root=None) -> dict:
-        return ledger
-
-    calendar_store = ModuleType("calendar_store")
-    calendar_store.CalendarConflictError = CalendarConflictError
-    calendar_store.CalendarValidationError = CalendarValidationError
-    calendar_store.create_event = create_event
-    calendar_store.STORE_PATH = tmp_path / "calendar_events.json"
-    calendar_store.LOG_DIR = tmp_path
-    calendar_store._STORE_CACHE = None
-    calendar_store._STORE_MTIME_NS = None
-
-    core_module = ModuleType("Sky.core")
-    core_module.calendar_store = calendar_store
-
-    test_run_reports = ModuleType("test_run_reports")
-    test_run_reports.validate_test_queue_report_payload = validate_test_queue_report_payload
-    test_run_reports.record_test_run_report = record_test_run_report
-    test_run_reports.load_project_capability_ledger = load_project_capability_ledger
-
-    services_module = ModuleType("Sky.services")
-    services_module.test_run_reports = test_run_reports
-
-    sky_module = ModuleType("Sky")
-    sky_module.core = core_module
-    sky_module.services = services_module
-
-    monkeypatch.setitem(sys.modules, "Sky", sky_module)
-    monkeypatch.setitem(sys.modules, "Sky.core", core_module)
-    monkeypatch.setitem(sys.modules, "Sky.core.calendar_store", calendar_store)
-    monkeypatch.setitem(sys.modules, "Sky.services", services_module)
-    monkeypatch.setitem(sys.modules, "Sky.services.test_run_reports", test_run_reports)
-    monkeypatch.setattr(scheduler, "_ensure_sky_path", lambda: None)
-    return calendar_store, test_run_reports
 
 
 def test_hardware_escalation_routes_low_confidence_to_3090_when_available():
@@ -234,8 +170,8 @@ def test_sequence_failure_still_writes_diagnostic(monkeypatch, tmp_path):
     assert Path(result["paths"]["markdown"]).exists()
 
 
-def test_report_payload_validates_and_records_to_ledger(monkeypatch, tmp_path):
-    _, trr = _install_fake_sky(monkeypatch, tmp_path)
+@requires_sky
+def test_report_payload_validates_and_records_to_ledger(tmp_path):
     run_id = "ocr97_hw_ledger"
     run_dir = tmp_path / "runs" / run_id
     run_dir.mkdir(parents=True)
@@ -270,8 +206,9 @@ def test_scheduler_dry_run_payload_has_test_queue_fields():
     assert "README section" in event["notes"]
 
 
+@requires_sky
 def test_scheduler_calendar_event_is_admitted(monkeypatch, tmp_path):
-    _install_fake_sky(monkeypatch, tmp_path)
+    _isolated_store(monkeypatch, tmp_path)
     start = datetime(2026, 5, 18, 8, 30, tzinfo=ZoneInfo("America/Chicago"))
 
     result = scheduler.create_calendar_card(start)
@@ -282,8 +219,9 @@ def test_scheduler_calendar_event_is_admitted(monkeypatch, tmp_path):
     assert result["event"]["verification_command"]
 
 
+@requires_sky
 def test_scheduler_conflict_advances_to_next_open_slot(monkeypatch, tmp_path):
-    calendar_store, _ = _install_fake_sky(monkeypatch, tmp_path)
+    _isolated_store(monkeypatch, tmp_path)
     calendar_store.create_event(
         {
             "title": "Busy",
@@ -300,13 +238,15 @@ def test_scheduler_conflict_advances_to_next_open_slot(monkeypatch, tmp_path):
     selected, result = scheduler.find_calendar_slot(start, max_checks=5)
 
     assert result["ok"] is True
-    assert selected == datetime(2026, 5, 18, 9, 15, tzinfo=ZoneInfo("America/Chicago"))
-    assert result["event"]["run_id"].endswith("20260518_0915")
-    assert result["event"]["start"] == "2026-05-18T14:15:00Z"
+    assert selected == datetime(2026, 5, 18, 8, 30, tzinfo=ZoneInfo("America/Chicago"))
+    assert result["event"]["run_id"].endswith("20260518_0830")
+    assert result["event"]["start"] == "2026-05-19T04:00:00Z"
+    assert result["event"]["metadata"]["calendar_queue_guardrail"]["applied"] is True
 
 
+@requires_sky
 def test_scheduler_missing_required_fields_rejected(monkeypatch, tmp_path):
-    calendar_store, _ = _install_fake_sky(monkeypatch, tmp_path)
+    _isolated_store(monkeypatch, tmp_path)
     payload = scheduler._calendar_payload(datetime(2026, 5, 18, 8, 30, tzinfo=ZoneInfo("America/Chicago")))
     payload["capability"] = ""
     payload["metadata"] = dict(payload["metadata"])

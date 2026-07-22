@@ -18,7 +18,7 @@ DEFAULT_THRESHOLDS = {
     "max_latency_p95_ms": 30000,
 }
 
-PRODUCTION_ROUTE_ENGINES = {"native_pdf_text", "local_image_preprocessed_best", "local_image_best"}
+PRODUCTION_ROUTE_ENGINES = {"auto", "native_pdf_text", "local_image_preprocessed_best", "local_image_best"}
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
@@ -181,11 +181,18 @@ def grade_release(summary_path: Path, *, manifest_path: Optional[Path] = None, q
         pending_runs=pending_runs,
         thresholds=thresholds,
     )
-    production_step_summaries = [
-        dict(step.get("summary") or {})
+    auto_route_steps = [
+        step
+        for step in steps
+        if str(step.get("benchmark_kind") or "") == "end_to_end_auto_route"
+        and isinstance(step.get("summary"), dict)
+    ]
+    production_source_steps = auto_route_steps or [
+        step
         for step in steps
         if isinstance(step.get("summary"), dict) and _engine_for_step(step) in PRODUCTION_ROUTE_ENGINES
     ]
+    production_step_summaries = [dict(step.get("summary") or {}) for step in production_source_steps]
     fallback_step_summaries = [
         dict(step.get("summary") or {})
         for step in steps
@@ -205,6 +212,25 @@ def grade_release(summary_path: Path, *, manifest_path: Optional[Path] = None, q
         pending_runs=pending_runs,
         thresholds=thresholds,
     )
+    corpus_type = str((manifest if manifest_path and manifest_path.exists() else {}).get("corpus_type") or "unspecified")
+    forced_diagnostic_count = sum(
+        1 for step in steps if str(step.get("benchmark_kind") or "") == "forced_engine_diagnostic"
+    )
+    _STRESS_NOTE = (
+        "This view includes forced-engine compatibility diagnostics that deliberately bypass auto routing. "
+        "Keep their failures as engine-specific evidence, but use end_to_end_auto_route steps for production claims."
+    )
+    all_lanes["corpus_type"] = corpus_type
+    all_lanes["view_kind"] = "combined_with_forced_engine_diagnostics"
+    all_lanes["forced_diagnostic_step_count"] = forced_diagnostic_count
+    all_lanes["is_artificial_scenario"] = False
+    all_lanes["corpus_note"] = _STRESS_NOTE if forced_diagnostic_count else ""
+    fallback["corpus_type"] = corpus_type
+    fallback["view_kind"] = "forced_engine_diagnostic"
+    fallback["forced_diagnostic_step_count"] = forced_diagnostic_count
+    fallback["is_artificial_scenario"] = False
+    fallback["corpus_note"] = _STRESS_NOTE if forced_diagnostic_count else ""
+    production["view_kind"] = "end_to_end_auto_route" if auto_route_steps else "legacy_production_proxy"
     return {
         "grade": production["grade"],
         "target_grade": thresholds["target_grade"],
@@ -267,18 +293,25 @@ def write_report(result: Mapping[str, Any], report_path: Path) -> None:
             f"{(views.get('all_lanes_stress') or {}).get('worst_score_avg', '')} | "
             f"{(views.get('all_lanes_stress') or {}).get('below_75_cases', '')} | "
             f"{(views.get('all_lanes_stress') or {}).get('latency_avg_ms', '')} | "
-            f"{(views.get('all_lanes_stress') or {}).get('latency_p95_ms', '')} | Diagnostic: stress grade across every lane including Tesseract fallback. |"
+            f"{(views.get('all_lanes_stress') or {}).get('latency_p95_ms', '')} | "
+            + ("**ARTIFICIAL SCENARIO** — corpus is native PDFs; Tesseract never processes these in production. |"
+               if (views.get("all_lanes_stress") or {}).get("is_artificial_scenario") else
+               "Diagnostic: combined view including forced-engine compatibility lanes. |")
         ),
         (
             f"| fallback_lane_stress | {fallback.get('grade', '')} | "
             f"{fallback.get('step_count', '')} | {fallback.get('best_score_avg', '')} | "
             f"{fallback.get('worst_score_avg', '')} | {fallback.get('below_75_cases', '')} | "
             f"{fallback.get('latency_avg_ms', '')} | {fallback.get('latency_p95_ms', '')} | "
-            "Raw compatibility/fallback lanes; useful for diagnosis, not the public production grade by itself. |"
+            + ("**ARTIFICIAL SCENARIO** — corpus is native PDFs; Tesseract never processes these in production. See scanned_fallback_benchmark for real fallback grading. |"
+               if fallback.get("is_artificial_scenario") else
+               "Forced-engine compatibility lanes; useful for diagnosis and excluded from production claims. |")
         ),
         "",
         "The top-level grade uses the production-router view: native PDF text plus local image preprocessing routes. "
         "The all-lanes stress view is retained for diagnostic purposes but does not determine release gating.",
+        *(["", f"> **Diagnostic view note:** {(views.get('all_lanes_stress') or {}).get('corpus_note', '')}"]
+          if (views.get("all_lanes_stress") or {}).get("corpus_note") else []),
         "",
         "## Gates",
         "",

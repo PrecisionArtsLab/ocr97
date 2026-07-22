@@ -411,10 +411,7 @@ def _feature_page_scores(image: "Image.Image") -> Dict[str, float]:
         lines = None
     if lines is not None:
         for line in lines[:80]:
-            coords = np.asarray(line).reshape(-1).tolist()
-            if len(coords) < 4:
-                continue
-            x1, y1, x2, y2 = [int(v) for v in coords[:4]]
+            x1, y1, x2, y2 = [int(v) for v in line[0]]
             dx = abs(x2 - x1)
             dy = abs(y2 - y1)
             if dx > width * 0.16 and dy <= max(6, height * 0.015):

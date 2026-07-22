@@ -102,10 +102,7 @@ def _detect_rotation_angle(img_path: Path) -> Optional[float]:
         if lines is not None:
             angles = []
             for line in lines:
-                coords = _np.asarray(line).reshape(-1).tolist()
-                if len(coords) < 4:
-                    continue
-                x1, y1, x2, y2 = coords[:4]
+                x1, y1, x2, y2 = line[0]
                 dx = x2 - x1
                 if dx != 0:
                     a = float(_np.degrees(_np.arctan2(y2 - y1, dx)))
@@ -322,6 +319,8 @@ def _extract_with_gateway(
     case: Mapping[str, Any],
     *,
     engine: str = "native_pdf_text",
+    requested_lane_strict: bool = True,
+    route_mode: str = "balanced",
 ) -> Dict[str, Any]:
     started = time.perf_counter()
     with path.open("rb") as handle:
@@ -331,8 +330,8 @@ def _extract_with_gateway(
                 "file": (io.BytesIO(handle.read()), path.name),
                 "goal": str(case.get("goal") or "Extract exact business fields and preserve numeric values."),
                 "model": engine,
-                "requested_lane_strict": "1",
-                "route_mode": "balanced",
+                "requested_lane_strict": "1" if requested_lane_strict else "0",
+                "route_mode": route_mode,
                 "max_pages": "1",
                 "max_chars": "8000",
             },
@@ -419,8 +418,14 @@ def run_gateway_image_truth_benchmark(
     output_dir: Optional[Path] = None,
     variant: str = "mild_degraded",
     engine: str = "tesseract",
+    requested_lane_strict: bool = True,
+    benchmark_kind: str = "forced_engine_diagnostic",
 ) -> Dict[str, Any]:
-    _force_public_profile_for_truth_runner(engine=engine)
+    if str(engine or "").strip().lower() in {"", "auto", "gb10_auto"}:
+        requested_lane_strict = False
+        os.environ["OCR97_PROFILE"] = str(os.getenv("OCR97_AUTO_ROUTE_PROFILE", "local-production"))
+    else:
+        _force_public_profile_for_truth_runner(engine=engine)
     if str(engine or "").strip().lower() == "local_image_preprocessed_best":
         os.environ.setdefault("OCR97_OCR_PREPROCESS_FAST_ACCEPT", "1")
         if "OCR97_OCR_PREPROCESS_FAST_ACCEPT_SCORE" not in os.environ:
@@ -449,7 +454,14 @@ def run_gateway_image_truth_benchmark(
         if not case_id:
             continue
         path = Path(fixture_paths[case_id])
-        extraction = _extract_with_gateway(client, path, case, engine=engine)
+        extraction = _extract_with_gateway(
+            client,
+            path,
+            case,
+            engine=engine,
+            requested_lane_strict=requested_lane_strict,
+            route_mode="balanced" if requested_lane_strict else "quality_first",
+        )
         payload = dict(extraction.get("payload") or {})
         extracted_text = str(payload.get("markdown") or payload.get("text") or "")
         score = score_case(case, extracted_text=extracted_text)
@@ -465,7 +477,7 @@ def run_gateway_image_truth_benchmark(
             variant=variant,
             engine=engine,
         )
-        if should_escalate:
+        if requested_lane_strict and should_escalate:
             baseline = {
                 "engine": str(payload.get("engine") or engine),
                 "router": str(payload.get("router") or ""),
@@ -508,7 +520,7 @@ def run_gateway_image_truth_benchmark(
 
         # Auto-correct: if preprocessed score is below threshold, try rotation
         # and denoising alternatives.
-        if score_val < _ROTATE_RETRY_THRESHOLD and str(engine or "").strip().lower() == "local_image_preprocessed_best":
+        if requested_lane_strict and score_val < _ROTATE_RETRY_THRESHOLD and str(engine or "").strip().lower() == "local_image_preprocessed_best":
             best_extraction = extraction
             best_payload = payload
             best_text = extracted_text
@@ -550,6 +562,19 @@ def run_gateway_image_truth_benchmark(
             "selected_preprocess": str(payload.get("selected_preprocess") or ""),
             "route": str(payload.get("route") or ""),
             "fallback_reason": str(payload.get("fallback_reason") or ""),
+            "benchmark_kind": benchmark_kind,
+            "requested_lane_strict": bool(payload.get("requested_lane_strict", requested_lane_strict)),
+            "engine_chain": list(payload.get("engine_chain") or []),
+            "attempts": list(payload.get("attempts") or []),
+            "attempted_engines": list(payload.get("attempted_engines") or []),
+            "chain_depth": int(payload.get("chain_depth") or 0),
+            "selected_attempt_index": int(payload.get("selected_attempt_index") if payload.get("selected_attempt_index") is not None else -1),
+            "selected_attempt_number": int(payload.get("selected_attempt_number") or 0),
+            "fallback_used": bool(payload.get("fallback_used")),
+            "degraded_fallback": bool(payload.get("degraded_fallback")),
+            "fallback_status": str(payload.get("fallback_status") or ""),
+            "confidence": payload.get("confidence"),
+            "confidence_tier": str(payload.get("confidence_tier") or ""),
             "field_consensus": list(payload.get("field_consensus") or []),
             "field_consensus_used": bool(payload.get("field_consensus_used")),
             "receipt_fields": list(payload.get("receipt_fields") or []),
@@ -568,6 +593,8 @@ def run_gateway_image_truth_benchmark(
     return {
         "name": str(manifest.get("name") or "ocr97_truth_benchmark"),
         "mode": f"gateway_image_{engine}_{variant}",
+        "benchmark_kind": benchmark_kind,
+        "requested_lane_strict": requested_lane_strict,
         "case_count": len(results),
         "score_avg": avg,
         "fixture_dir": str(fixture_dir),

@@ -26,21 +26,6 @@ import requests
 from flask import jsonify, request
 
 from . import diagnostics as diag
-from .engine_registry import (
-    default_lane_signature,
-    engine_class,
-    engine_cli_command,
-    engine_is_optional,
-    engine_module_name,
-    engine_names,
-    engine_native_api_module,
-    engine_runtime_signatures,
-    engine_supports_doc_class,
-    filter_optional_engines,
-    normalize_engine_name,
-    public_capability_rows,
-    select_engine_chain,
-)
 from .legacy_env import apply_legacy_env_aliases
 from .paths import ensure_paths
 from .profiles import gb10_default_enabled, local_production_enabled
@@ -49,6 +34,28 @@ from .receipt_fields import append_receipt_fields, receipt_fields_from_candidate
 
 apply_legacy_env_aliases()
 _PATHS = ensure_paths()
+
+
+def _evaluate_lane_slo_gate(
+    slo: Mapping[str, Any],
+    *,
+    p95_cap_ms: int,
+    min_samples: int,
+) -> Dict[str, Any]:
+    """Evaluate steady-state SLOs only after a representative sample exists."""
+    sample_count = max(0, int(slo.get("last_24h_count") or slo.get("sample_count") or 0))
+    sample_minimum = max(1, int(min_samples))
+    metrics_enforced = sample_count >= sample_minimum
+    return {
+        "metrics_enforced": metrics_enforced,
+        "sample_count": sample_count,
+        "min_samples": sample_minimum,
+        "sample_minimum_met": metrics_enforced,
+        "timeout_rate_ok": (not metrics_enforced) or float(slo.get("timeout_rate") or 0.0) < 0.05,
+        "fallback_rate_ok": (not metrics_enforced) or float(slo.get("fallback_rate") or 0.0) < 0.20,
+        "p95_ok": (not metrics_enforced) or float(slo.get("p95_latency_ms") or 0.0) <= float(p95_cap_ms),
+        "p95_cap_ms": int(p95_cap_ms),
+    }
 
 
 class _LazyModule:
@@ -249,13 +256,68 @@ def _classify_doc_type(path: Path, goal: str, document_features: Optional[Dict[s
 
 
 def _engine_chain(doc_class: str, route_mode: str, requested_model: str, document_features: Optional[Dict[str, Any]] = None) -> list[str]:
-    requested = normalize_engine_name(str(requested_model or "").strip().lower())
-    chain = select_engine_chain(doc_class, route_mode, forced_engine=requested)
+    requested = str(requested_model or "").strip().lower()
+    if requested and requested not in {"auto", "gb10_auto"}:
+        chain = [requested, "gb10_qwen_ocr", "rapidocr", "tesseract"]
+    elif str(route_mode or "quality_first").strip().lower() != "balanced":
+        if doc_class == "forms_or_checkboxes":
+            chain = ["gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"]
+        elif doc_class == "chart_or_figure":
+            chain = ["gb10_qwen_ocr", "gb10_paddleocr_vl", "rapidocr", "tesseract"]
+        elif doc_class in {"digital_pdf", "table_dense"}:
+            chain = ["native_pdf_text", "gb10_paddleocr_vl", "mineru2_5", "olmocr2", "gb10_qwen_ocr", "rapidocr", "tesseract"]
+        elif doc_class in {"scanned_pdf", "handwritten"}:
+            chain = ["gb10_got_ocr2", "mineru2_5", "gb10_qwen_ocr", "rapidocr", "tesseract"]
+        else:
+            chain = ["local_image_best", "gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"]
+    elif doc_class == "forms_or_checkboxes":
+        chain = ["gb10_qwen_ocr", "rapidocr", "tesseract"]
+    elif doc_class == "chart_or_figure":
+        chain = ["gb10_qwen_ocr", "rapidocr"]
+    elif doc_class in {"digital_pdf", "table_dense"}:
+        chain = ["native_pdf_text", "gb10_paddleocr_vl", "gb10_qwen_ocr", "rapidocr"]
+    elif doc_class in {"scanned_pdf", "handwritten"}:
+        chain = ["gb10_got_ocr2", "gb10_qwen_ocr", "rapidocr"]
+    else:
+        chain = ["local_image_best", "gb10_qwen_ocr", "rapidocr"]
     if not gb10_default_enabled():
-        chain = filter_optional_engines(chain, allow_optional=False)
+        chain = [engine for engine in chain if not str(engine).startswith("gb10_")]
         if not chain:
             chain = ["rapidocr", "tesseract"]
     return chain
+
+
+def _routing_metadata(
+    *,
+    attempts: list[Dict[str, Any]],
+    selected_attempt_index: int,
+    selected_engine: str,
+    fallback_reason: str = "",
+) -> Dict[str, Any]:
+    """Return explicit, stable telemetry for the selected route attempt."""
+    attempted_engines = [str(item.get("engine") or "") for item in attempts]
+    fallback_used = selected_attempt_index > 0
+    is_tesseract = "tesseract" in str(selected_engine or "").lower() and "preprocessed" not in str(selected_engine or "").lower()
+    reason = str(fallback_reason or "").strip()
+    if fallback_used and not reason:
+        prior = attempts[:selected_attempt_index]
+        failed = [str(item.get("engine") or "") for item in prior if not item.get("ok")]
+        below = [str(item.get("engine") or "") for item in prior if item.get("ok")]
+        if failed:
+            reason = "prior_engines_failed:" + ",".join(failed)
+        elif below:
+            reason = "prior_engines_below_acceptance:" + ",".join(below)
+    degraded = bool(is_tesseract and fallback_used)
+    return {
+        "chain_depth": len(attempts),
+        "attempted_engines": attempted_engines,
+        "selected_attempt_index": int(selected_attempt_index),
+        "selected_attempt_number": int(selected_attempt_index) + 1 if selected_attempt_index >= 0 else 0,
+        "fallback_used": fallback_used,
+        "fallback_reason": reason,
+        "degraded_fallback": degraded,
+        "fallback_status": "degraded_fallback" if degraded else "fallback" if fallback_used else "primary",
+    }
 
 
 def _table_rows(text: str) -> int:
@@ -298,6 +360,26 @@ def _structure_score(text: str) -> float:
     return round(max(0.0, min(1.0, (multi_line_bonus * 0.35) + (heading_score * 0.35) + (table_score * 0.30))), 3)
 
 
+def _mixed_script_penalty(text: str) -> float:
+    """Penalize CJK codepoints appearing as a small minority inside Latin text.
+
+    That mix is the signature of an OCR engine hallucinating on non-CJK input
+    (e.g. RapidOCR emitting stray hanzi on English handwriting). Legitimately
+    CJK documents have a majority CJK ratio and are not penalized.
+    """
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return 0.0
+    letters = [ch for ch in cleaned if ch.isalpha()]
+    if len(letters) < 8:
+        return 0.0
+    cjk = sum(1 for ch in letters if "⺀" <= ch <= "鿿" or "぀" <= ch <= "ヿ" or "가" <= ch <= "힯")
+    ratio = cjk / float(len(letters))
+    if 0.0 < ratio < 0.5:
+        return round(min(0.15, 0.05 + ratio * 0.4), 3)
+    return 0.0
+
+
 def _quality_bundle(text: str, confidence: Any) -> Dict[str, Any]:
     chars = len(str(text or "").strip())
     conf = None
@@ -310,7 +392,8 @@ def _quality_bundle(text: str, confidence: Any) -> Dict[str, Any]:
     numeric_score = _numeric_fidelity_score(text)
     char_score = min(1.0, chars / 1600.0)
     conf_score = min(1.0, max(0.0, conf)) if conf is not None else 0.65
-    score = round(max(0.0, min(1.0, (char_score * 0.35) + (structure_score * 0.35) + (numeric_score * 0.20) + (conf_score * 0.10))), 3)
+    script_penalty = _mixed_script_penalty(text)
+    score = round(max(0.0, min(1.0, (char_score * 0.35) + (structure_score * 0.35) + (numeric_score * 0.20) + (conf_score * 0.10) - script_penalty)), 3)
     return {
         "score": score,
         "chars": chars,
@@ -1224,14 +1307,18 @@ def _local_image_preprocessed_best_extract(
 
 def _infer_ollama_model(base_url: str, preferred: str = "") -> str:
     preferred_model = str(preferred or "").strip()
-    if preferred_model:
-        return preferred_model
     try:
         response = requests.get(f"{base_url}/api/tags", timeout=4)
         data = response.json() if response.ok else {}
     except Exception:
-        return ""
+        return preferred_model
     names = [str((item or {}).get("name") or "") for item in list(data.get("models") or [])]
+    if preferred_model:
+        preferred_lower = preferred_model.lower()
+        for present in names:
+            present_lower = present.lower()
+            if present_lower == preferred_lower or present_lower.startswith(f"{preferred_lower}:") or preferred_lower.startswith(f"{present_lower}:"):
+                return present
     for candidate in ("qwen3-vl:32b", "qwen2.5vl:7b", "qwen2.5-vl:7b", "qwen2.5-vl:32b"):
         if candidate in names:
             return candidate
@@ -1589,7 +1676,7 @@ def _olmocr_backend_status() -> Dict[str, Any]:
 
 
 def _engine_health(engine: str) -> Dict[str, Any]:
-    name = normalize_engine_name(str(engine or "").strip().lower())
+    name = str(engine or "").strip().lower()
     if name == "gb10_paddleocr_vl":
         return _paddle_backend_status()
     if name == "mineru2_5":
@@ -2776,6 +2863,8 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
     }
     warm_lock = threading.Lock()
     metrics_window_hours = max(1, int(os.getenv("OCR97_OCR_SLO_WINDOW_HOURS", "24")))
+    slo_min_samples = max(1, int(os.getenv("OCR97_OCR_SLO_MIN_SAMPLES", "8")))
+    slo_timeout_cooldown_sec = max(0, int(os.getenv("OCR97_OCR_SLO_TIMEOUT_COOLDOWN_SEC", "120")))
     smoke_required = _truthy(os.getenv("OCR97_OCR_SMOKE_REQUIRED", "1"), default=True)
     smoke_report_path = Path(str(os.getenv("OCR97_OCR_SMOKE_REPORT_PATH", "")).strip() or (upload_root.parent / "ocr_smoke_report.json"))
     p95_caps_by_class = {
@@ -2845,10 +2934,15 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             return {
                 "window_hours": metrics_window_hours,
                 "last_24h_count": 0,
+                "sample_count": 0,
                 "success_rate": 0.0,
                 "timeout_rate": 0.0,
                 "fallback_rate": 0.0,
                 "p95_latency_ms": 0.0,
+                "last_event_at": "",
+                "last_event_timed_out": False,
+                "timeout_cooldown_active": False,
+                "timeout_cooldown_remaining_sec": 0,
             }
         latencies = sorted(float(row.get("latency_ms") or 0.0) for row in rows)
         p95_index = max(0, min(len(latencies) - 1, int(round(0.95 * len(latencies) + 0.499)) - 1))
@@ -2856,13 +2950,26 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         success = sum(1 for row in rows if bool(row.get("ok")))
         timeouts = sum(1 for row in rows if bool(row.get("timed_out")))
         fallbacks = sum(1 for row in rows if bool(row.get("fallback_used")))
+        last_row = rows[-1]
+        last_event_at = str(last_row.get("ts") or "")
+        last_event_dt = _iso_to_dt(last_event_at)
+        last_event_timed_out = bool(last_row.get("timed_out"))
+        cooldown_remaining = 0
+        if last_event_timed_out and last_event_dt is not None and slo_timeout_cooldown_sec > 0:
+            elapsed = max(0.0, (now - last_event_dt).total_seconds())
+            cooldown_remaining = max(0, int(round(slo_timeout_cooldown_sec - elapsed)))
         return {
             "window_hours": metrics_window_hours,
             "last_24h_count": count,
+            "sample_count": count,
             "success_rate": round(success / float(count), 4),
             "timeout_rate": round(timeouts / float(count), 4),
             "fallback_rate": round(fallbacks / float(count), 4),
             "p95_latency_ms": round(p95, 2),
+            "last_event_at": last_event_at,
+            "last_event_timed_out": last_event_timed_out,
+            "timeout_cooldown_active": cooldown_remaining > 0,
+            "timeout_cooldown_remaining_sec": cooldown_remaining,
         }
 
     def _build_install_manifest() -> Dict[str, Any]:
@@ -3041,43 +3148,50 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
     _start_prewarm_loop()
 
     def _engine_snapshot(engine: str) -> Dict[str, Any]:
-        normalized = normalize_engine_name(engine)
-        health = _engine_health(normalized)
+        health = _engine_health(engine)
         runtime_flags = _runtime_loaded_flags()
-        lane_class = _engine_class(normalized)
-        slo = _lane_slo(normalized)
+        lane_class = _engine_class(engine)
+        slo = _lane_slo(engine)
         smoke = _load_smoke_report()
         smoke_rows = dict(smoke.get("engines") or {})
-        smoke_row = dict(smoke_rows.get(normalized) or smoke_rows.get(engine) or {})
+        smoke_row = dict(smoke_rows.get(engine) or {})
         smoke_pass = bool(smoke_row.get("pass")) or bool(smoke_row.get("ok"))
         p95_cap = int(p95_caps_by_class.get(lane_class, p95_caps_by_class.get("unknown", 30000)))
-        timeout_ok = float(slo.get("timeout_rate") or 0.0) < 0.05
-        fallback_ok = float(slo.get("fallback_rate") or 0.0) < 0.20
-        p95_ok = float(slo.get("p95_latency_ms") or 0.0) <= float(p95_cap)
+        slo_gate = _evaluate_lane_slo_gate(slo, p95_cap_ms=p95_cap, min_samples=slo_min_samples)
+        timeout_ok = bool(slo_gate.get("timeout_rate_ok"))
+        fallback_ok = bool(slo_gate.get("fallback_rate_ok"))
+        p95_ok = bool(slo_gate.get("p95_ok"))
+        timeout_cooldown_ok = not bool(slo.get("timeout_cooldown_active"))
         smoke_ok = smoke_pass or not smoke_required
         health_ready = bool(health.get("ready"))
         ready_gate = {
             "mode": "balanced",
-            "pass": bool(health_ready and smoke_ok and timeout_ok and fallback_ok and p95_ok),
+            "pass": bool(health_ready and smoke_ok and timeout_ok and fallback_ok and p95_ok and timeout_cooldown_ok),
             "smoke_required": bool(smoke_required),
             "smoke_pass": bool(smoke_pass),
             "timeout_rate_ok": bool(timeout_ok),
             "fallback_rate_ok": bool(fallback_ok),
             "p95_ok": bool(p95_ok),
             "p95_cap_ms": int(p95_cap),
+            "metrics_enforced": bool(slo_gate.get("metrics_enforced")),
+            "sample_count": int(slo_gate.get("sample_count") or 0),
+            "min_samples": int(slo_gate.get("min_samples") or slo_min_samples),
+            "sample_minimum_met": bool(slo_gate.get("sample_minimum_met")),
+            "timeout_cooldown_ok": bool(timeout_cooldown_ok),
+            "timeout_cooldown_remaining_sec": int(slo.get("timeout_cooldown_remaining_sec") or 0),
         }
         return {
-            "name": normalized,
+            "name": engine,
             "class": lane_class,
             "ready": bool(ready_gate.get("pass")),
             "health_ready": health_ready,
             "reason": str(health.get("reason") or ""),
             "health": health,
-            "runtime_loaded": bool(runtime_flags.get(normalized)),
-            "cold_start_estimate_ms": _compute_cold_start_ms(normalized),
-            "native_api_supported": _engine_native_api_supported(normalized),
-            "cli_supported": _engine_cli_supported(normalized),
-            "lane_signature_modes": _engine_signature_modes(normalized),
+            "runtime_loaded": bool(runtime_flags.get(engine)),
+            "cold_start_estimate_ms": _compute_cold_start_ms(engine),
+            "native_api_supported": _engine_native_api_supported(engine),
+            "cli_supported": _engine_cli_supported(engine),
+            "lane_signature_modes": _engine_signature_modes(engine),
             "slo": slo,
             "ready_gate": ready_gate,
             "smoke": {
@@ -3092,27 +3206,84 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         return bool(_engine_snapshot(engine).get("ready"))
 
     def _engine_class(engine: str) -> str:
-        return engine_class(engine)
+        mapping = {
+            "gb10_paddleocr_vl": "layout",
+            "gb10_got_ocr2": "dense_scan",
+            "mineru2_5": "structure_parser",
+            "olmocr2": "linearization",
+            "gb10_qwen_ocr": "semantic_cleanup",
+            "rapidocr": "compat_fallback",
+            "tesseract": "compat_fallback",
+            "native_pdf_text": "native_text",
+            "local_image_best": "image_router",
+            "local_image_preprocessed_best": "image_preprocessor",
+        }
+        return mapping.get(str(engine or "").strip().lower(), "unknown")
 
     def _engine_native_api_supported(engine: str) -> bool:
-        module_name = engine_native_api_module(engine)
-        return bool(module_name and _module_available(module_name))
+        name = str(engine or "").strip().lower()
+        if name == "mineru2_5":
+            return _module_available("mineru.cli.client")
+        if name == "olmocr2":
+            return _module_available("olmocr.pipeline")
+        return False
 
     def _engine_cli_supported(engine: str) -> bool:
-        cmd = engine_cli_command(engine)
-        return bool(cmd and shutil.which(cmd))
+        name = str(engine or "").strip().lower()
+        if name == "mineru2_5":
+            return bool(shutil.which(str(os.getenv("OCR97_MINERU2_5_CMD", "mineru")).strip() or "mineru"))
+        if name == "olmocr2":
+            return bool(shutil.which(str(os.getenv("OCR97_OLMOCR2_CMD", "olmocr")).strip() or "olmocr"))
+        return False
 
     def _engine_signature_modes(engine: str) -> list[str]:
-        modes = engine_runtime_signatures(engine)
-        return list(modes or ([f"{normalize_engine_name(engine) or 'unknown'}_worker"]))
+        name = str(engine or "").strip().lower()
+        if name == "mineru2_5":
+            return ["mineru_native_api", "mineru_cli_fallback"]
+        if name == "olmocr2":
+            return ["olmocr_native_api", "olmocr_cli_fallback"]
+        if name == "gb10_paddleocr_vl":
+            return ["paddleocr_vl_worker"]
+        if name == "gb10_got_ocr2":
+            return ["got_ocr2_worker"]
+        if name == "gb10_qwen_ocr":
+            return ["qwen_ocr_worker"]
+        if name == "rapidocr":
+            return ["rapidocr_worker"]
+        if name == "tesseract":
+            return ["tesseract_worker"]
+        if name == "native_pdf_text":
+            return ["native_pdf_text"]
+        if name == "local_image_best":
+            return ["tesseract_worker", "rapidocr_worker"]
+        if name == "local_image_preprocessed_best":
+            return ["pillow_preprocess", "tesseract_worker", "rapidocr_worker"]
+        return [f"{name}_worker"] if name else []
 
     def _default_lane_signature(engine: str, row: Dict[str, Any]) -> str:
         if str(row.get("lane_signature") or "").strip():
             return str(row.get("lane_signature") or "").strip()
-        default_mode = default_lane_signature(engine)
-        if default_mode:
-            return default_mode
-        name = normalize_engine_name(str(engine or "").strip().lower())
+        name = str(engine or "").strip().lower()
+        if name == "mineru2_5":
+            return "mineru_native_unknown"
+        if name == "olmocr2":
+            return "olmocr_native_unknown"
+        if name == "gb10_paddleocr_vl":
+            return "paddleocr_vl_worker"
+        if name == "gb10_got_ocr2":
+            return "got_ocr2_worker"
+        if name == "native_pdf_text":
+            return "native_pdf_text"
+        if name == "local_image_best":
+            return "local_image_best"
+        if name == "local_image_preprocessed_best":
+            return "local_image_preprocessed_best"
+        if name == "gb10_qwen_ocr":
+            return "qwen_ocr_worker"
+        if name == "rapidocr":
+            return "rapidocr_worker"
+        if name == "tesseract":
+            return "tesseract_worker"
         return f"{name or 'unknown'}_worker"
 
     def _normalize_result(
@@ -3228,7 +3399,6 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         region_retry_policy: Optional[Dict[str, Any]] = None,
         bypass_ready_gate: bool = False,
     ) -> Dict[str, Any]:
-        engine = normalize_engine_name(engine)
         start = time.perf_counter()
         timeout_sec = max(15, min(default_timeout_sec, int(os.getenv("OCR97_OCR_ENGINE_TIMEOUT_SEC", str(default_timeout_sec)))))
         snapshot = _engine_snapshot(engine)
@@ -3245,6 +3415,8 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 gate_reason.append("fallback_rate_high")
             if not bool(gate.get("p95_ok")):
                 gate_reason.append("p95_latency_high")
+            if not bool(gate.get("timeout_cooldown_ok", True)):
+                gate_reason.append("timeout_cooldown_active")
             result: Dict[str, Any] = {
                 "ok": False,
                 "engine": engine,
@@ -3620,9 +3792,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
         json_payload = request.get_json(silent=True) if request.is_json else {}
 
         goal = str(request.form.get("goal") or ((json_payload or {}).get("goal") if isinstance(json_payload, dict) else "") or "").strip()
-        model = normalize_engine_name(
-            str(request.form.get("model") or ((json_payload or {}).get("model") if isinstance(json_payload, dict) else "") or "auto").strip().lower()
-        )
+        model = str(request.form.get("model") or ((json_payload or {}).get("model") if isinstance(json_payload, dict) else "") or "auto").strip().lower()
         route_mode = str(request.form.get("route_mode") or ((json_payload or {}).get("route_mode") if isinstance(json_payload, dict) else "") or os.getenv("OCR97_OCR_ROUTE_MODE", "quality_first")).strip().lower()
         explicit_lane = model not in {"", "auto", "gb10_auto"}
         requested_lane_strict = _truthy(
@@ -3678,17 +3848,22 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             doc_class = _classify_doc_type(local_path, goal, document_features=document_features)
             if explicit_lane and requested_lane_strict:
                 warnings = list(feature_detection.get("warnings") or [])
-                if model not in {"", "auto", "gb10_auto"} and not engine_supports_doc_class(model, doc_class):
-                    warnings.append(f"detected_{doc_class}_but_requested_lane_lacks_matching_capability")
+                if doc_class == "handwritten" and model not in {"gb10_got_ocr2", "gb10_qwen_ocr"}:
+                    warnings.append("detected_handwriting_but_requested_lane_is_strict")
+                if doc_class == "chart_or_figure" and model not in {"gb10_qwen_ocr", "gb10_paddleocr_vl"}:
+                    warnings.append("detected_chart_or_figure_but_requested_lane_is_strict")
+                if doc_class == "forms_or_checkboxes" and model not in {"gb10_qwen_ocr", "gb10_got_ocr2", "rapidocr", "tesseract"}:
+                    warnings.append("detected_visual_controls_but_requested_lane_is_strict")
                 feature_detection["warnings"] = warnings
             if explicit_lane and requested_lane_strict:
                 chain = [model]
             else:
                 chain = _engine_chain(doc_class, route_mode, model, document_features=document_features)
             if not gb10_default_enabled() and not (explicit_lane and requested_lane_strict):
-                chain = filter_optional_engines([*chain, "rapidocr", "tesseract"], allow_optional=False)
+                chain = [engine for engine in chain if not str(engine).startswith("gb10_")] + ["rapidocr", "tesseract"]
             attempts: list[Dict[str, Any]] = []
             best: Dict[str, Any] = {}
+            best_attempt_index = -1
             best_score = -1.0
             fallback_reason = ""
             target_score = 0.72 if route_mode != "balanced" else 0.60
@@ -3713,6 +3888,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                     "confidence": row.get("confidence"),
                     "structure_score": float(q.get("structure_score") or 0.0),
                     "numeric_fidelity_score": float(q.get("numeric_fidelity_score") or 0.0),
+                    "quality_score": float(q.get("score") or 0.0),
                     "lane_signature": str(row.get("lane_signature") or ""),
                     "fallback_reason": str(row.get("fallback_reason") or row.get("error") or ""),
                 }
@@ -3721,6 +3897,7 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 if row.get("ok") and score > best_score:
                     best = row
                     best_score = score
+                    best_attempt_index = len(attempts) - 1
                 native_chars = int(q.get("chars") or len(str(row.get("text") or "")))
                 if (
                     engine == "native_pdf_text"
@@ -3734,10 +3911,12 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 ):
                     best = row
                     best_score = score
+                    best_attempt_index = len(attempts) - 1
                     break
                 if row.get("ok") and score >= target_score and float(q.get("numeric_fidelity_score") or 0.0) >= 0.50:
                     best = row
                     best_score = score
+                    best_attempt_index = len(attempts) - 1
                     break
                 if not row.get("ok") and not fallback_reason:
                     fallback_reason = str(row.get("fallback_reason") or row.get("error") or "")
@@ -3779,6 +3958,15 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             response["warm_hint"] = warm_hint
             response["requested_lane_strict"] = bool(requested_lane_strict)
             response["bypass_ready_gate"] = bool(bypass_ready_gate)
+            _selected_engine = str(best.get("engine") or best.get("selected_engine") or "").lower()
+            response.update(
+                _routing_metadata(
+                    attempts=attempts,
+                    selected_attempt_index=best_attempt_index,
+                    selected_engine=_selected_engine,
+                    fallback_reason=str(response.get("fallback_reason") or ""),
+                )
+            )
             _low_thresh = float(os.getenv("OCR97_LOW_CONFIDENCE_THRESHOLD", "0.45"))
             _high_thresh = float(os.getenv("OCR97_HIGH_CONFIDENCE_THRESHOLD", "0.72"))
             response["low_confidence"] = best_score < _low_thresh
@@ -3857,7 +4045,17 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             ollama_ok = None
             ollama_data = {}
         with state.lock:
-            engine_rows = {name: _engine_snapshot(name) for name in engine_names(include_optional=True)}
+            engine_rows = {
+                "gb10_paddleocr_vl": _engine_snapshot("gb10_paddleocr_vl"),
+                "gb10_got_ocr2": _engine_snapshot("gb10_got_ocr2"),
+                "mineru2_5": _engine_snapshot("mineru2_5"),
+                "olmocr2": _engine_snapshot("olmocr2"),
+                "gb10_qwen_ocr": _engine_snapshot("gb10_qwen_ocr"),
+                "local_image_best": _engine_snapshot("local_image_best"),
+                "local_image_preprocessed_best": _engine_snapshot("local_image_preprocessed_best"),
+                "rapidocr": _engine_snapshot("rapidocr"),
+                "tesseract": _engine_snapshot("tesseract"),
+            }
             install_runtime = _safe_json_load(install_manifest_path) or install_manifest
             smoke_runtime = _load_smoke_report()
             payload = {
@@ -3879,7 +4077,17 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                     "url": ollama_url,
                     "models": [str((item or {}).get("name") or "") for item in list(ollama_data.get("models") or [])],
                 },
-                "engines": {name: bool(details.get("ready")) for name, details in engine_rows.items()},
+                "engines": {
+                    "gb10_paddleocr_vl": bool(engine_rows["gb10_paddleocr_vl"]["ready"]),
+                    "gb10_got_ocr2": bool(engine_rows["gb10_got_ocr2"]["ready"]),
+                    "mineru2_5": bool(engine_rows["mineru2_5"]["ready"]),
+                    "olmocr2": bool(engine_rows["olmocr2"]["ready"]),
+                    "gb10_qwen_ocr": bool(engine_rows["gb10_qwen_ocr"]["ready"]),
+                    "local_image_best": bool(engine_rows["local_image_best"]["ready"]),
+                    "local_image_preprocessed_best": bool(engine_rows["local_image_preprocessed_best"]["ready"]),
+                    "rapidocr": bool(engine_rows["rapidocr"]["ready"]),
+                    "tesseract": bool(engine_rows["tesseract"]["ready"]),
+                },
                 "feature_detection": {
                     "document_feature_classifier": {
                         "ready": bool(PIL_AVAILABLE),
@@ -3909,6 +4117,8 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 "slo_policy": {
                     "mode": "balanced",
                     "window_hours": metrics_window_hours,
+                    "min_samples": slo_min_samples,
+                    "timeout_cooldown_sec": slo_timeout_cooldown_sec,
                     "timeout_rate_max": 0.05,
                     "fallback_rate_max": 0.20,
                     "p95_caps_by_class": p95_caps_by_class,
@@ -3953,7 +4163,6 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
             return jsonify({"ok": False, "error": "unauthorized"}), 401
         install_runtime = _safe_json_load(install_manifest_path) or install_manifest
         smoke_runtime = _load_smoke_report()
-        engine_rows = {row["name"]: _engine_snapshot(str(row["name"])) for row in public_capability_rows()}
         engines = [
             {
                 "class": "feature_detection",
@@ -3979,18 +4188,15 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 "enabled": _truthy(os.getenv("OCR97_LAYOUT_MODEL_ENABLED", "0"), default=False),
                 "runtime_loaded": False,
             },
-            *[
-                {
-                    "class": str(row.get("class") or ""),
-                    "provider_name": str(row.get("provider") or ""),
-                    "label": str(row.get("label") or ""),
-                    "supported_doc_classes": list(row.get("supported_doc_classes") or []),
-                    "aliases": list(row.get("aliases") or []),
-                    "optional_lane": bool(row.get("optional_lane")),
-                    **engine_rows[str(row.get("name") or "")],
-                }
-                for row in public_capability_rows()
-            ],
+            {"class": "layout", **_engine_snapshot("gb10_paddleocr_vl")},
+            {"class": "dense_scan", **_engine_snapshot("gb10_got_ocr2")},
+            {"class": "structure_parser", **_engine_snapshot("mineru2_5")},
+            {"class": "linearization", **_engine_snapshot("olmocr2")},
+            {"class": "semantic_cleanup", **_engine_snapshot("gb10_qwen_ocr")},
+            {"class": "image_router", **_engine_snapshot("local_image_best")},
+            {"class": "image_preprocessor", **_engine_snapshot("local_image_preprocessed_best")},
+            {"class": "compat_fallback", **_engine_snapshot("rapidocr")},
+            {"class": "compat_fallback", **_engine_snapshot("tesseract")},
         ]
         return jsonify(
             {
@@ -4009,6 +4215,8 @@ def register_gb10_ocr_gateway_routes(app, instance_name: str, upload_dir: Option
                 "slo_policy": {
                     "mode": "balanced",
                     "window_hours": metrics_window_hours,
+                    "min_samples": slo_min_samples,
+                    "timeout_cooldown_sec": slo_timeout_cooldown_sec,
                     "timeout_rate_max": 0.05,
                     "fallback_rate_max": 0.20,
                     "p95_caps_by_class": p95_caps_by_class,

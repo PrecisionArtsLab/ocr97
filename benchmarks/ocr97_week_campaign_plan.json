@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "campaign_id": "ocr97_week_comparative_benchmark",
+  "project": "ocr97",
+  "duration_nights": 7,
+  "local_start_time": "00:30",
+  "ftp_checkpoint_time": "04:45",
+  "primary_corpus": {
+    "dataset": "jsdnrs/ICDAR2019-SROIE",
+    "split": "test",
+    "document_count": 50,
+    "document_kind": "real receipt scans and photographs",
+    "language_scope": "English primary"
+  },
+  "engines": [
+    "ocr97/local_image_preprocessed_best",
+    "tesseract",
+    "paddleocr",
+    "surya",
+    "doctr"
+  ],
+  "metrics": [
+    "CER",
+    "WER",
+    "receipt field accuracy",
+    "line recall",
+    "reading-order score",
+    "numeric-token recall",
+    "generated table/layout score",
+    "average latency",
+    "p95 latency",
+    "completion rate"
+  ],
+  "supporting_evidence": {
+    "generated_table_layout_cases": 20,
+    "generated_multilingual_sanity_cases": 3,
+    "languages": ["Spanish", "French", "German"],
+    "grading_note": "Supporting evidence is reported separately and does not inflate the 50-document English real-photo score."
+  },
+  "acceptance": {
+    "minimum_scored_real_documents_per_engine": 45,
+    "all_results_same_machine": true,
+    "cer_wer_required": true,
+    "material_latency_improvement_target": "OCR97 average latency <= 0.75 times the fastest fully scored baseline",
+    "target_comparative_grade": 85
+  },
+  "guardrails": {
+    "phase_attempt_limit": 2,
+    "phase_timeout_hours": 5.5,
+    "multiple_instances": "IgnoreNew",
+    "scheduler_retries": 2,
+    "scheduler_retry_interval_minutes": 15,
+    "stale_heartbeat_minutes": 15,
+    "logs_retained_days": 30,
+    "exact_pid_termination_only": true,
+    "resume_existing_artifacts": true
+  },
+  "completion_notification": "ntfy using ARGUS_NTFY_URL and ARGUS_NTFY_TOPIC from Sky/.env"
+}

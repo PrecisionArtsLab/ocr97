@@ -135,6 +135,7 @@ def _download_image(url: str, path: Path, *, retries: int = 3, backoff_sec: floa
 
 def _extract_with_gateway(client: Any, image_path: Path, *, engine: str) -> Dict[str, Any]:
     started = time.perf_counter()
+    auto_route = str(engine or "").strip().lower() in {"", "auto", "gb10_auto"}
     with image_path.open("rb") as handle:
         response = client.post(
             "/ocr/extract",
@@ -142,8 +143,8 @@ def _extract_with_gateway(client: Any, image_path: Path, *, engine: str) -> Dict
                 "file": (io.BytesIO(handle.read()), image_path.name),
                 "goal": "Extract exact receipt fields: company, date, total, address. Preserve OCR text and numbers.",
                 "model": engine,
-                "requested_lane_strict": "1",
-                "route_mode": "balanced",
+                "requested_lane_strict": "0" if auto_route else "1",
+                "route_mode": "quality_first" if auto_route else "balanced",
                 "max_pages": "1",
                 "max_chars": "12000",
             },
@@ -205,6 +206,18 @@ def run_sroie_benchmark(
             "router": str(payload.get("router") or ""),
             "selected_engine": str(payload.get("selected_engine") or ""),
             "selected_preprocess": str(payload.get("selected_preprocess") or ""),
+            "engine_chain": list(payload.get("engine_chain") or []),
+            "attempts": list(payload.get("attempts") or []),
+            "attempted_engines": list(payload.get("attempted_engines") or []),
+            "chain_depth": int(payload.get("chain_depth") or 0),
+            "selected_attempt_index": int(payload.get("selected_attempt_index") if payload.get("selected_attempt_index") is not None else -1),
+            "selected_attempt_number": int(payload.get("selected_attempt_number") or 0),
+            "fallback_used": bool(payload.get("fallback_used")),
+            "fallback_reason": str(payload.get("fallback_reason") or ""),
+            "degraded_fallback": bool(payload.get("degraded_fallback")),
+            "fallback_status": str(payload.get("fallback_status") or ""),
+            "confidence": payload.get("confidence"),
+            "confidence_tier": str(payload.get("confidence_tier") or ""),
             "field_consensus_used": bool(payload.get("field_consensus_used")),
             "receipt_fields_used": bool(payload.get("receipt_fields_used")),
             "receipt_fields": list(payload.get("receipt_fields") or []),

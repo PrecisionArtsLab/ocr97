@@ -1,0 +1,1408 @@
+{
+  "name": "scanned_fallback_benchmark",
+  "description": "Synthetic image-only fixtures for deterministic OCR stress testing. Auto-route steps test routing behavior; strict Tesseract and preprocessing steps are forced-engine diagnostics. This corpus does not substitute for physically scanned or photographed documents.",
+  "corpus_type": "image_only",
+  "corpus_note": "Synthetic fixtures are rendered from known text and transformed with deterministic image degradation. Use real_routing_manifest.json for claims about real scans, photographs, handwriting, photocopies, or signed documents.",
+  "cases": [
+    {
+      "id": "fax_purchase_order_baseline",
+      "label": "Fax purchase order - Baseline",
+      "category": "fax_document",
+      "required_tokens": [
+        "FAX TRANSMISSION",
+        "Purchase Order",
+        "Total Due"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Purchase Order",
+            "PO Number"
+          ],
+          "expected": "PO-2026-0441",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Due",
+            "Amount"
+          ],
+          "expected": "3847.50",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Due Date",
+            "Payment Due"
+          ],
+          "expected": "2026-08-01",
+          "type": "date"
+        }
+      ],
+      "sample_text": "FAX TRANSMISSION\nTo: Accounts Payable  From: Supplier Relations\nDate: 2026-07-01      Pages: 2\n\nPURCHASE ORDER\nPO Number: PO-2026-0441\nVendor: Allied Supply Co.\nShip To: 1200 Industrial Blvd\n\nItem         Qty   Unit Price   Total\nWidget A     50    $42.50       $2,125.00\nWidget B     30    $57.42       $1,722.50\n\nSubtotal: $3,847.50\nTax: $0.00\nTotal Due: $3,847.50\nDue Date: 2026-08-01\nPayment Terms: Net 30",
+      "modality": "fax_scan"
+    },
+    {
+      "id": "fax_purchase_order_degraded",
+      "label": "Fax purchase order - Degraded transmission",
+      "category": "fax_document",
+      "required_tokens": [
+        "FAX",
+        "Purchase Order",
+        "Total Due"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Purchase Order",
+            "PO"
+          ],
+          "expected": "PO-2026-0442",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Due",
+            "Total"
+          ],
+          "expected": "1250.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "FAX\nFrom: West Coast Distributors\nPO: PO-2026-0442\n\nPurchase Order Confirmation\nItem: Office Supplies Bundle\nQuantity: 25 units\nUnit Price: $50.00\nSubtotal: $1,250.00\nTotal Due: $1,250.00\nContact: orders@westcoast.com",
+      "modality": "fax_scan"
+    },
+    {
+      "id": "fax_remittance_advice",
+      "label": "Fax remittance advice",
+      "category": "fax_document",
+      "required_tokens": [
+        "REMITTANCE",
+        "Invoice",
+        "Payment Amount"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Invoice",
+            "Invoice No"
+          ],
+          "expected": "INV-9981",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Payment Amount",
+            "Amount Paid"
+          ],
+          "expected": "5620.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "REMITTANCE ADVICE\nDate: 2026-07-10\nPaying Company: Meridian Corp\nBank: First National\nReference: ACH-20260710-001\n\nInvoice No: INV-9981\nInvoice Date: 2026-06-15\nOriginal Amount: $5,620.00\nDiscount: $0.00\nPayment Amount: $5,620.00\n\nPlease apply to outstanding balance.",
+      "modality": "fax_scan"
+    },
+    {
+      "id": "fax_delivery_confirmation",
+      "label": "Fax delivery confirmation",
+      "category": "fax_document",
+      "required_tokens": [
+        "DELIVERY CONFIRMATION",
+        "Order",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Order",
+            "Order Number"
+          ],
+          "expected": "ORD-55102",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Order Total"
+          ],
+          "expected": "892.40",
+          "type": "money"
+        }
+      ],
+      "sample_text": "DELIVERY CONFIRMATION\nFax to: Receiving Dept\nFrom: Logistics Center\n\nOrder Number: ORD-55102\nDelivery Date: 2026-07-08\nCarrier: Regional Freight\nTracking: RF20260708X\n\nItems Delivered: 12 cartons\nOrder Total: $892.40\nSignature on File: Yes\nCondition: Good",
+      "modality": "fax_scan"
+    },
+    {
+      "id": "fax_credit_memo",
+      "label": "Fax credit memo",
+      "category": "fax_document",
+      "required_tokens": [
+        "CREDIT MEMO",
+        "Credit Amount",
+        "Account"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Account",
+            "Account No"
+          ],
+          "expected": "ACC-10042",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Credit Amount",
+            "Total Credit"
+          ],
+          "expected": "340.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "CREDIT MEMO\nIssued by: Apex Wholesale\nDate: 2026-07-12\n\nAccount No: ACC-10042\nCustomer: Bridgewater Retail\nOriginal Invoice: INV-8872\n\nReason: Damaged goods returned\nCredit Amount: $340.00\nTotal Credit: $340.00\n\nCredit will be applied to next invoice.",
+      "modality": "fax_scan"
+    },
+    {
+      "id": "legal_settlement_agreement_baseline",
+      "label": "Photocopied settlement agreement - Baseline",
+      "category": "photocopied_legal",
+      "required_tokens": [
+        "SETTLEMENT AGREEMENT",
+        "Settlement Amount",
+        "Due Date"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Settlement Amount",
+            "Total Settlement"
+          ],
+          "expected": "15000.00",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Due Date",
+            "Payment Date"
+          ],
+          "expected": "2026-09-15",
+          "type": "date"
+        }
+      ],
+      "sample_text": "SETTLEMENT AGREEMENT\n\nThis Settlement Agreement is entered into as of July 1, 2026,\nbetween Claimant: Harrison Properties LLC\nand Respondent: Pacific Construction Inc.\n\nSettlement Amount: $15,000.00\nPayment Schedule: Lump sum\nDue Date: 2026-09-15\n\nConditions: Full release of all claims related to\ncontract dispute dated 2025-11-30.\n\nSigned: _______________  Date: ___________\nSigned: _______________  Date: ___________",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "legal_promissory_note",
+      "label": "Photocopied promissory note",
+      "category": "photocopied_legal",
+      "required_tokens": [
+        "PROMISSORY NOTE",
+        "Principal",
+        "Interest Rate"
+      ],
+      "expected_fields": [
+        {
+          "name": "principal",
+          "aliases": [
+            "Principal",
+            "Principal Amount"
+          ],
+          "expected": "25000.00",
+          "type": "money"
+        },
+        {
+          "name": "interest_rate",
+          "aliases": [
+            "Interest Rate",
+            "Rate"
+          ],
+          "expected": "6.5%",
+          "type": "percent"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Maturity Date",
+            "Due Date"
+          ],
+          "expected": "2027-07-01",
+          "type": "date"
+        }
+      ],
+      "sample_text": "PROMISSORY NOTE\n\nDate: July 1, 2026\nBorrower: James R. Whitfield\nLender: Cornerstone Capital LLC\n\nPrincipal Amount: $25,000.00\nInterest Rate: 6.5% per annum\nMaturity Date: 2027-07-01\nMonthly Payment: $2,167.00\n\nBorrower agrees to repay the principal plus accrued interest\nin twelve equal monthly installments beginning August 1, 2026.\n\nSignature: _______________________",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "legal_lease_agreement",
+      "label": "Photocopied lease agreement",
+      "category": "photocopied_legal",
+      "required_tokens": [
+        "LEASE AGREEMENT",
+        "Monthly Rent"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Monthly Rent",
+            "Rent"
+          ],
+          "expected": "2400.00",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Unit",
+            "Premises"
+          ],
+          "expected": "Unit 4B",
+          "type": "text"
+        }
+      ],
+      "sample_text": "LEASE AGREEMENT\n\nLandlord: Ridgemont Property Group\nTenant: Sarah K. Monroe\nPremises: Unit 4B, 880 Oakdale Avenue\nLease Term: 2026-08-01 to 2027-07-31\n\nMonthly Rent: $2,400.00\nSecurity Deposit: $2,400.00\nLate Fee: $75.00 after 5th of month\n\nTenant acknowledges receipt of keys and agrees to\nall terms outlined in this lease agreement.\n\nLandlord Signature: _______________\nTenant Signature: _______________",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "legal_lien_release",
+      "label": "Photocopied lien release",
+      "category": "photocopied_legal",
+      "required_tokens": [
+        "LIEN RELEASE",
+        "Amount"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Amount",
+            "Lien Amount"
+          ],
+          "expected": "8750.00",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Property",
+            "Parcel"
+          ],
+          "expected": "APN-0042-118",
+          "type": "text"
+        }
+      ],
+      "sample_text": "LIEN RELEASE\n\nDate: July 5, 2026\nClaimant: Tri-State Roofing LLC\nOwner: Douglas & Marie Fletcher\nProperty Parcel: APN-0042-118\nProperty Address: 4421 Westbrook Drive\n\nLien Amount: $8,750.00\nOriginal Lien Date: 2026-04-12\nPayment Received: $8,750.00\n\nClaimant hereby releases the above property from\nall lien claims as of the date of this document.\n\nNotarized: _______________________",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "legal_power_of_attorney",
+      "label": "Photocopied power of attorney",
+      "category": "photocopied_legal",
+      "required_tokens": [
+        "POWER OF ATTORNEY",
+        "Principal"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Account",
+            "Reference"
+          ],
+          "expected": "POA-2026-0072",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Effective Date",
+            "Date"
+          ],
+          "expected": "2026-07-01",
+          "type": "date"
+        }
+      ],
+      "sample_text": "POWER OF ATTORNEY\n\nReference: POA-2026-0072\nEffective Date: 2026-07-01\n\nI, Robert A. Chambers, hereby appoint\nCaroline M. Chambers as my lawful attorney-in-fact\nto act on my behalf in all financial matters,\nincluding banking, real estate, and tax filings.\n\nThis power shall remain in effect unless\nrevoked in writing by the Principal.\n\nPrincipal Signature: _______________\nNotary: _______________  Date: _______",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "mobile_receipt_coffee_shop",
+      "label": "Mobile-scanned receipt - Coffee shop",
+      "category": "mobile_scan_receipt",
+      "required_tokens": [
+        "HARBOR BREW CO.",
+        "Total",
+        "Tax"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Amount Due"
+          ],
+          "expected": "18.45",
+          "type": "money"
+        },
+        {
+          "name": "tax",
+          "aliases": [
+            "Tax",
+            "Sales Tax"
+          ],
+          "expected": "1.45",
+          "type": "money"
+        }
+      ],
+      "sample_text": "HARBOR BREW CO.\n412 Marina Blvd\nTel: 555-0192\n\nReceipt #44812\nDate: 2026-07-14  10:32 AM\nCashier: Jordan\n\nCold Brew Large    $5.50\nAvocado Toast      $9.50\nOat Milk Add-on    $1.00\nBlueberry Muffin   $2.00\n-----------------------\nSubtotal:         $18.00\nTax (8%):          $1.45\nTotal:            $18.45\nCash Paid:        $20.00\nChange:            $1.55\n\nThank you! Have a great day.",
+      "modality": "phone_photograph"
+    },
+    {
+      "id": "mobile_receipt_hardware_store",
+      "label": "Mobile-scanned receipt - Hardware store",
+      "category": "mobile_scan_receipt",
+      "required_tokens": [
+        "ACE HARDWARE",
+        "Total",
+        "Tax"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Amount Total"
+          ],
+          "expected": "67.23",
+          "type": "money"
+        },
+        {
+          "name": "tax",
+          "aliases": [
+            "Tax",
+            "Sales Tax"
+          ],
+          "expected": "5.23",
+          "type": "money"
+        },
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Receipt",
+            "Trans"
+          ],
+          "expected": "TXN-220481",
+          "type": "text"
+        }
+      ],
+      "sample_text": "ACE HARDWARE - DOWNTOWN\n88 Commerce Street\n555-0147\n\nTrans: TXN-220481\n07/14/2026  2:15PM\n\n3/4\" PVC Pipe 10ft   $8.99\nPipe Cement 8oz      $6.49\nPVC Primer           $5.49\nAngle Bracket 4pk   $12.99\nWood Screws 1lb      $7.99\nPlywood Sheet        $21.05\n\nSubtotal:           $62.00\nSales Tax (8.44%):   $5.23\nTotal:              $67.23\nVisa ending 4821:   $67.23",
+      "modality": "phone_photograph"
+    },
+    {
+      "id": "mobile_receipt_pharmacy",
+      "label": "Mobile-scanned receipt - Pharmacy",
+      "category": "mobile_scan_receipt",
+      "required_tokens": [
+        "Pharmacy",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Amount Charged"
+          ],
+          "expected": "34.18",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "RX",
+            "Prescription"
+          ],
+          "expected": "RX-7741892",
+          "type": "text"
+        }
+      ],
+      "sample_text": "WALTON PHARMACY\nRx Department\n1540 Oak Park Blvd\n\nDate: 07/14/2026\nPatient: M. Lindberg\nRX: RX-7741892\n\nPrescription: Metformin 500mg #90\nCopay:                    $15.00\nVitamin D 2000IU         $12.99\nAntacid Tablets          $6.19\n\nSubtotal:                $34.18\nInsurance Applied:        $0.00\nTotal:                   $34.18\nCredit Card:             $34.18",
+      "modality": "phone_photograph"
+    },
+    {
+      "id": "mobile_receipt_gas_station",
+      "label": "Mobile-scanned receipt - Gas station",
+      "category": "mobile_scan_receipt",
+      "required_tokens": [
+        "Fuel",
+        "Total",
+        "Gallons"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Amount"
+          ],
+          "expected": "58.41",
+          "type": "money"
+        },
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Transaction",
+            "Auth"
+          ],
+          "expected": "AUTH-882201",
+          "type": "text"
+        }
+      ],
+      "sample_text": "QUICKSTOP FUEL CENTER\nPump 7  07/14/2026 9:07AM\nAuth: AUTH-882201\n\nGrade: Regular Unleaded\nPrice/Gal: $3.899\nGallons: 14.981\n\nFuel:               $58.41\nTotal:              $58.41\nVisa Debit xxxx9034\n\nApproved\nThank you for your business!",
+      "modality": "phone_photograph"
+    },
+    {
+      "id": "mobile_receipt_restaurant",
+      "label": "Mobile-scanned receipt - Restaurant",
+      "category": "mobile_scan_receipt",
+      "required_tokens": [
+        "Table",
+        "Total",
+        "Tax"
+      ],
+      "expected_fields": [
+        {
+          "name": "subtotal",
+          "aliases": [
+            "Subtotal",
+            "Food Total"
+          ],
+          "expected": "82.00",
+          "type": "money"
+        },
+        {
+          "name": "tax",
+          "aliases": [
+            "Tax",
+            "Sales Tax"
+          ],
+          "expected": "6.97",
+          "type": "money"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Grand Total"
+          ],
+          "expected": "104.97",
+          "type": "money"
+        }
+      ],
+      "sample_text": "THE GRAND TABLE\n220 Riverfront Drive\nServer: Maria  Table: 14\nGuests: 3\n07/13/2026  7:48 PM\n\nFiesta Ribeye 12oz     $38.00\nSalmon en Papillote    $32.00\nCaesar Salad           $12.00\n\nFood Total:            $82.00\nSales Tax (8.5%):       $6.97\nSubtotal:              $88.97\nGratuity (18%):        $16.00\nGrand Total:          $104.97",
+      "modality": "phone_photograph"
+    },
+    {
+      "id": "govt_form_w9_baseline",
+      "label": "Government W-9 form scan",
+      "category": "government_form",
+      "required_tokens": [
+        "W-9",
+        "Taxpayer"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "EIN",
+            "Tax ID"
+          ],
+          "expected": "82-4401937",
+          "type": "text"
+        },
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Form",
+            "Reference"
+          ],
+          "expected": "W9-2026-0814",
+          "type": "text"
+        }
+      ],
+      "sample_text": "Form W-9  Request for Taxpayer Identification\nDepartment of the Treasury  IRS\n\nReference: W9-2026-0814\n\nName: Clearwater Consulting LLC\nBusiness Type: Limited Liability Company\nTax Classification: S Corporation\n\nAddress: 3310 Commerce Park Blvd, Suite 200\nCity/State/Zip: Denver, CO 80203\n\nTaxpayer ID (EIN): 82-4401937\n\nCertification: Under penalties of perjury, I certify\nthat the TIN provided is correct.\n\nSignature: _______________  Date: 07/10/2026",
+      "modality": "photographed"
+    },
+    {
+      "id": "govt_form_business_license",
+      "label": "Government business license scan",
+      "category": "government_form",
+      "required_tokens": [
+        "Business License",
+        "License No",
+        "Expiration"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "License Number",
+            "License No"
+          ],
+          "expected": "BL-2026-44812",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Expiration",
+            "Expires"
+          ],
+          "expected": "2027-06-30",
+          "type": "date"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Fee",
+            "License Fee"
+          ],
+          "expected": "250.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "CITY OF LAKEWOOD\nDepartment of Business Services\n\nBUSINESS LICENSE\n\nLicense No: BL-2026-44812\nBusiness Name: Sunrise Bakery & Cafe\nOwner: Patricia Nguyen\nAddress: 702 Main Street, Lakewood, CO 80226\nBusiness Type: Food Service Establishment\n\nIssue Date: 2026-07-01\nExpiration: 2027-06-30\nLicense Fee: $250.00\n\nThis license must be displayed at the place of business.\nInspector: J. Torres  Signature: _______________",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "govt_form_permit",
+      "label": "Government building permit scan",
+      "category": "government_form",
+      "required_tokens": [
+        "PERMIT",
+        "Permit No",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Permit Number",
+            "Permit No"
+          ],
+          "expected": "BP-2026-18804",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Fee",
+            "Permit Fee"
+          ],
+          "expected": "1850.00",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Expiration Date",
+            "Expires"
+          ],
+          "expected": "2027-01-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "COUNTY BUILDING & SAFETY DIVISION\n\nBUILDING PERMIT\n\nPermit No: BP-2026-18804\nPermit Type: Residential Addition\nOwner: Marcus & Diane Thornton\nSite Address: 8821 Creekside Lane\nAPN: 0881-044-022\n\nDescription: 400 sq ft master suite addition\nValuation: $85,000\nTotal Fee: $1,850.00\nIssued: 2026-07-14\nExpiration Date: 2027-01-14\n\nWork must comply with all applicable codes.\nApproved by: D. Park, Chief Building Official",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "govt_form_tax_notice",
+      "label": "Government property tax notice scan",
+      "category": "government_form",
+      "required_tokens": [
+        "TAX NOTICE",
+        "Account",
+        "Total Due"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Parcel",
+            "Account Number"
+          ],
+          "expected": "047-221-018",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Due",
+            "Amount Due"
+          ],
+          "expected": "4218.40",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Due Date",
+            "Pay By"
+          ],
+          "expected": "2026-12-10",
+          "type": "date"
+        }
+      ],
+      "sample_text": "COUNTY ASSESSOR-COLLECTOR\nPROPERTY TAX NOTICE 2026\n\nAccount Number: 047-221-018\nOwner: Fitzgerald Rental Group\nProperty: 1440 Industrial Parkway\n\nAssessed Value:      $421,840\nTax Rate:            1.00%\nBase Tax:           $4,218.40\nExemptions:             $0.00\nTotal Due:          $4,218.40\n\nDue Date: 2026-12-10\nPay By: 2026-12-10 to avoid penalty\nPenalty after due date: 6%\n\nMake checks payable to: County Tax Office",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "govt_form_vehicle_registration",
+      "label": "Government vehicle registration scan",
+      "category": "government_form",
+      "required_tokens": [
+        "VEHICLE REGISTRATION",
+        "Registration Fee"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "VIN",
+            "Vehicle ID"
+          ],
+          "expected": "1HGBH41JXMN109186",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Registration Fee",
+            "Total"
+          ],
+          "expected": "142.00",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Expiration",
+            "Exp Date"
+          ],
+          "expected": "2027-07-31",
+          "type": "date"
+        }
+      ],
+      "sample_text": "STATE DEPARTMENT OF MOTOR VEHICLES\nVEHICLE REGISTRATION RENEWAL\n\nOwner: Christopher Blake\nVIN: 1HGBH41JXMN109186\nYear/Make/Model: 2021 Honda Accord EX\nLicense Plate: ABC-4471\nCounty: Jefferson\n\nRegistration Fee: $98.00\nSmog Abatement:   $20.00\nCHP Fee:          $24.00\nTotal:           $142.00\n\nExpiration: 2027-07-31\nValid: 2026-08-01 through 2027-07-31",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "medical_record_lab_result",
+      "label": "Scanned medical lab result",
+      "category": "medical_record",
+      "required_tokens": [
+        "LABORATORY REPORT",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Patient ID",
+            "MRN"
+          ],
+          "expected": "MRN-0081442",
+          "type": "text"
+        },
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Order",
+            "Requisition"
+          ],
+          "expected": "LAB-20260712-0041",
+          "type": "text"
+        }
+      ],
+      "sample_text": "LAKESIDE DIAGNOSTIC CENTER\nLABORATORY REPORT\n\nPatient: Eleanor Vasquez\nMRN: MRN-0081442\nDOB: 1978-03-22\nOrdering Physician: Dr. R. Patel\nRequisition: LAB-20260712-0041\nCollection Date: 2026-07-12\n\nCOMPREHENSIVE METABOLIC PANEL\nGlucose:        98 mg/dL    [70-100] NORMAL\nCreatinine:     0.9 mg/dL   [0.6-1.2] NORMAL\nSodium:         141 mEq/L   [136-145] NORMAL\nPotassium:      4.1 mEq/L   [3.5-5.1] NORMAL\nTotal Protein:  7.2 g/dL    [6.4-8.3] NORMAL\n\nVerified by: M. Chen, MT (ASCP)",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "medical_record_eob",
+      "label": "Scanned insurance EOB",
+      "category": "medical_record",
+      "required_tokens": [
+        "EXPLANATION OF BENEFITS",
+        "Total Billed"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total Billed",
+            "Billed Amount"
+          ],
+          "expected": "1840.00",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Member ID",
+            "Claim Number"
+          ],
+          "expected": "CLM-2026-88214",
+          "type": "text"
+        },
+        {
+          "name": "net_pay",
+          "aliases": [
+            "Patient Responsibility",
+            "You Owe"
+          ],
+          "expected": "184.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "EXPLANATION OF BENEFITS\nBlue Shield Healthcare\nMember: Nathan Okafor  Member ID: MBR-104418\n\nClaim Number: CLM-2026-88214\nService Date: 2026-06-28\nProvider: Central Valley Orthopedics\n\nService: MRI Right Knee (CPT 73721)\nTotal Billed:         $1,840.00\nPlan Discount:        $  920.00\nPlan Paid (80%):      $  736.00\nPatient Responsibility (20%): $184.00\nYou Owe:              $  184.00\n\nThis is not a bill. Please wait for your provider statement.",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "medical_record_prescription",
+      "label": "Scanned prescription record",
+      "category": "medical_record",
+      "required_tokens": [
+        "PRESCRIPTION"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Rx Number",
+            "Prescription No"
+          ],
+          "expected": "RX-4402881",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Cost"
+          ],
+          "expected": "45.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "MOUNTAIN VIEW FAMILY MEDICINE\nPrescription Record\n\nPatient: Linda Park\nDOB: 1965-09-10\nProvider: Dr. A. Johnson, MD\nDate: 2026-07-10\n\nRx Number: RX-4402881\nMedication: Lisinopril 10mg\nDispense: 90 tablets\nInstructions: Take 1 tablet daily by mouth\nRefills: 3\n\nPharmacy: CityMed Pharmacy\nDispense Date: 2026-07-11\nCost: $45.00\nCopay Applied: $45.00",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "medical_record_referral",
+      "label": "Scanned specialist referral",
+      "category": "medical_record",
+      "required_tokens": [
+        "REFERRAL"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Referral Number",
+            "Auth No"
+          ],
+          "expected": "AUTH-2026-5519",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Valid Through",
+            "Expiration"
+          ],
+          "expected": "2026-10-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "SPECIALIST REFERRAL\n\nAuth No: AUTH-2026-5519\nReferring Physician: Dr. K. Williams, Family Medicine\nSpecialist: Dr. M. Rodriguez, Cardiology\nPractice: Heart Care Associates\n\nPatient: James Thornburg  DOB: 1952-07-04\nMember ID: HMO-88812\nDiagnosis: Chest discomfort, R07.9\n\nServices Authorized: EKG, Stress Test, Echocardiogram\nVisits Authorized: 3\nValid Through: 2026-10-14\n\nInsurer: HealthFirst HMO  Group: GRP-40012",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "medical_record_discharge_summary",
+      "label": "Scanned hospital discharge summary",
+      "category": "medical_record",
+      "required_tokens": [
+        "DISCHARGE SUMMARY",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Account",
+            "Visit Number"
+          ],
+          "expected": "VIS-2026-004418",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Charges",
+            "Balance Due"
+          ],
+          "expected": "8240.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "RIVERSIDE GENERAL HOSPITAL\nDISCHARGE SUMMARY\n\nPatient: Carol Hendricks\nVisit Number: VIS-2026-004418\nAdmit Date: 2026-07-08\nDischarge Date: 2026-07-11\nLOS: 3 days\n\nPrimary Diagnosis: Appendicitis (K37)\nProcedure: Laparoscopic Appendectomy\nSurgeon: Dr. B. Osei\n\nTotal Charges: $8,240.00\nInsurance Applied: $6,592.00\nBalance Due: $1,648.00\nStatement Date: 2026-07-14",
+      "modality": "scanned_form"
+    },
+    {
+      "id": "handwritten_form_job_application",
+      "label": "Handwritten job application form",
+      "category": "handwritten_form",
+      "required_tokens": [
+        "APPLICATION",
+        "Position"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Application No",
+            "App ID"
+          ],
+          "expected": "APP-2026-0912",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Date",
+            "Application Date"
+          ],
+          "expected": "2026-07-10",
+          "type": "date"
+        }
+      ],
+      "sample_text": "EMPLOYMENT APPLICATION\nApp ID: APP-2026-0912\nDate: 2026-07-10\n\nApplicant: Thomas Reid\nPhone: 555-0182\nEmail: treid@email.com\n\nPosition Applied For: Warehouse Associate\nAvailability: Full Time\nStart Date: Immediate\n\nWork History:\n  Employer: Retail Plus  2024-2026  Stockroom Lead\n  Employer: Quick Ship   2022-2024  Warehouse Staff\n\nEducation: High School Diploma 2021\n\nReferences: Available upon request\nSignature: Thomas Reid   Date: 07/10/2026",
+      "modality": "handwritten_scanned"
+    },
+    {
+      "id": "handwritten_form_expense_report",
+      "label": "Handwritten expense report",
+      "category": "handwritten_form",
+      "required_tokens": [
+        "EXPENSE REPORT",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Total Expenses"
+          ],
+          "expected": "487.50",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Employee ID",
+            "Emp No"
+          ],
+          "expected": "EMP-1142",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Report Date",
+            "Period"
+          ],
+          "expected": "2026-07-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "EXPENSE REPORT\nEmployee ID: EMP-1142\nEmployee: Sandra Kim\nDepartment: Sales\nReport Date: 2026-07-14\nPeriod: 2026-07-07 to 2026-07-13\n\nDate       Description              Amount\n07/08      Flight ORD-DEN           $210.00\n07/08      Hotel 1 night            $149.00\n07/09      Client Lunch             $68.50\n07/10      Parking Airport          $40.00\n07/10      Taxi                     $20.00\n\nTotal Expenses: $487.50\nApproved By: M. Garcia   Date: 07/14/2026",
+      "modality": "handwritten_scanned"
+    },
+    {
+      "id": "handwritten_form_order_form",
+      "label": "Handwritten order form",
+      "category": "handwritten_form",
+      "required_tokens": [
+        "ORDER FORM",
+        "Total",
+        "Due Date"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Order Total"
+          ],
+          "expected": "315.00",
+          "type": "money"
+        },
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Order No",
+            "Order Number"
+          ],
+          "expected": "ORD-5501",
+          "type": "text"
+        }
+      ],
+      "sample_text": "ORDER FORM\nOrder No: ORD-5501\nDate: 2026-07-12\n\nCustomer: Elmwood Florist\nPhone: 555-0299\nShip To: 4400 Garden Way\n\nItem                    Qty    Price    Total\nWhite Roses (dozen)     10     $12.00   $120.00\nMixed Arrangements       5     $35.00   $175.00\nDelivery Vases           4      $5.00    $20.00\n\nSubtotal:                               $315.00\nOrder Total: $315.00\nDue Date: 2026-07-19\nNotes: Refrigerated delivery required",
+      "modality": "handwritten_scanned"
+    },
+    {
+      "id": "handwritten_form_inspection_checklist",
+      "label": "Handwritten property inspection form",
+      "category": "handwritten_form",
+      "required_tokens": [
+        "INSPECTION"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Inspection No",
+            "Property ID"
+          ],
+          "expected": "INS-2026-0441",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Inspection Date",
+            "Date"
+          ],
+          "expected": "2026-07-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "PROPERTY INSPECTION REPORT\nInspection No: INS-2026-0441\nDate: 2026-07-14\nInspector: R. Davis  License: HI-44128\n\nProperty: 2240 Maple Street\nOwner: Chen Family Trust\nType: Single Family Residential\n\nROOF: Condition Good  Age 8 years\nFOUNDATION: No visible cracks  PASS\nHVAC: Operational  Serviced 2025\nELECTRICAL: 200A panel  Code compliant\nPLUMBING: No leaks observed  PASS\nINTERIOR: Minor cosmetic wear\n\nOverall Rating: SATISFACTORY\nReinspection Required: No\nSignature: _______________",
+      "modality": "handwritten_scanned"
+    },
+    {
+      "id": "handwritten_form_time_sheet",
+      "label": "Handwritten employee time sheet",
+      "category": "handwritten_form",
+      "required_tokens": [
+        "TIME SHEET",
+        "Total Hours",
+        "Total"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Employee",
+            "Employee ID"
+          ],
+          "expected": "EMP-0882",
+          "type": "text"
+        },
+        {
+          "name": "gross_pay",
+          "aliases": [
+            "Total Pay",
+            "Gross Pay"
+          ],
+          "expected": "1040.00",
+          "type": "money"
+        }
+      ],
+      "sample_text": "EMPLOYEE TIME SHEET\nEmployee ID: EMP-0882\nEmployee: Marcus Johnson\nDepartment: Maintenance\nPay Period: 2026-07-07 to 2026-07-13\n\nDay        In       Out      Hours\nMonday     7:00AM   3:30PM   8.0\nTuesday    7:00AM   3:30PM   8.0\nWednesday  7:00AM   3:30PM   8.0\nThursday   7:00AM   3:30PM   8.0\nFriday     7:00AM   3:30PM   8.0\n\nTotal Hours: 40.0\nRegular Hours: 40.0  Rate: $26.00/hr\nGross Pay: $1,040.00\n\nEmployee Signature: _______________\nSupervisor Approval: _______________",
+      "modality": "handwritten_scanned"
+    },
+    {
+      "id": "carbon_copy_invoice_auto_parts",
+      "label": "Carbon copy invoice - Auto parts",
+      "category": "carbon_copy",
+      "required_tokens": [
+        "INVOICE",
+        "Total",
+        "Account"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Invoice",
+            "Invoice No"
+          ],
+          "expected": "CC-INV-44018",
+          "type": "text"
+        },
+        {
+          "name": "subtotal",
+          "aliases": [
+            "Subtotal",
+            "Parts Total"
+          ],
+          "expected": "642.00",
+          "type": "money"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Due",
+            "Total"
+          ],
+          "expected": "696.57",
+          "type": "money"
+        }
+      ],
+      "sample_text": "METRO AUTO PARTS\n800 Mechanic Row  Ph: 555-0141\n\nINVOICE\nInvoice No: CC-INV-44018\nDate: 2026-07-14\nBill To: Eastside Auto Repair\nAccount: CUST-0882\n\nPart No      Description          Qty  Price    Ext\nBP-40218     Brake Pads Front      2   $48.00   $96.00\nBP-40219     Brake Pads Rear       2   $44.00   $88.00\nBR-11042     Brake Rotor           4   $82.00  $328.00\nFC-8801      Fuel Filter           1   $22.00   $22.00\nOS-4412      Oil Filter 3-pack     3   $36.00  $108.00\n\nSubtotal:               $642.00\nTax (8.5%):              $54.57\nTotal Due:              $696.57\nTerms: Net 15",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "carbon_copy_invoice_electrical",
+      "label": "Carbon copy invoice - Electrical supply",
+      "category": "carbon_copy",
+      "required_tokens": [
+        "INVOICE",
+        "Total",
+        "Account"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Invoice No",
+            "Invoice"
+          ],
+          "expected": "CC-INV-20814",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Invoice Total"
+          ],
+          "expected": "2104.80",
+          "type": "money"
+        }
+      ],
+      "sample_text": "VOLT ELECTRICAL SUPPLY\n1220 Industrial Ave\n\nINVOICE\nInvoice No: CC-INV-20814\nDate: 2026-07-10\nCustomer Account: ELEC-0441\nJob Site: Parkview Apartments Phase 2\n\nDescription                 Qty    Unit    Total\n14/2 NM Wire 250ft           8    $89.00  $712.00\n20A Duplex Outlets 10pk     12    $28.50  $342.00\nPVC Conduit 1/2in 10ft      40     $4.80  $192.00\nBreaker 20A Single Pole     24    $18.00  $432.00\nElec Panel 200A              1   $426.80  $426.80\n\nInvoice Total: $2,104.80\nDelivery: Included\nPayment Due: Net 30",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "carbon_copy_invoice_restaurant_supply",
+      "label": "Carbon copy invoice - Restaurant supply",
+      "category": "carbon_copy",
+      "required_tokens": [
+        "INVOICE",
+        "Total Due",
+        "Account"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Invoice No",
+            "Invoice"
+          ],
+          "expected": "CC-INV-88104",
+          "type": "text"
+        },
+        {
+          "name": "subtotal",
+          "aliases": [
+            "Subtotal",
+            "Food Total"
+          ],
+          "expected": "1890.00",
+          "type": "money"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Due",
+            "Total"
+          ],
+          "expected": "2050.35",
+          "type": "money"
+        }
+      ],
+      "sample_text": "PRIME FOODS WHOLESALE\n440 Distribution Center Rd\n\nINVOICE\nInvoice No: CC-INV-88104\nDate: 2026-07-13\nCustomer: The Harbor Grille  Account: REST-0228\n\nItem                 Lbs/Units  Unit Cost   Total\nRibEye Choice 1\"      80 lbs    $12.50   $1,000.00\nChicken Breast Fz     60 lbs     $4.80     $288.00\nSalmon Fillet Atl     25 lbs    $14.00     $350.00\nMixed Greens 3lb      12 bags    $21.00    $252.00\n\nSubtotal:                                $1,890.00\nTax (8.5%):                               $160.35\nTotal Due:                               $2,050.35\nDelivery: Tuesday & Friday AM",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "carbon_copy_work_order",
+      "label": "Carbon copy work order",
+      "category": "carbon_copy",
+      "required_tokens": [
+        "WORK ORDER",
+        "Total Labor"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Work Order",
+            "WO Number"
+          ],
+          "expected": "WO-2026-5510",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total",
+            "Amount Due"
+          ],
+          "expected": "847.50",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Completion Date",
+            "Date"
+          ],
+          "expected": "2026-07-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "PRECISION PLUMBING SERVICE\nWork Order: WO-2026-5510\nDate: 2026-07-14\nTechnician: D. Hernandez  Lic: P-44018\n\nCustomer: Westfield Apartments  Unit 204\nPhone: 555-0177\n\nIssue: Water heater replacement, 50 gal\n\nMaterials:\n  Bradford White 50Gal WH      $480.00\n  Misc fittings & connectors    $42.50\n\nLabor: 3.5 hrs @ $92/hr        $322.00\nDisposal fee:                    $50.00\n\nTotal Labor/Materials:          $894.50\nDiscount (member):             - $47.00\nAmount Due:                    $847.50\nCompletion Date: 2026-07-14",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "carbon_copy_packing_slip",
+      "label": "Carbon copy packing slip",
+      "category": "carbon_copy",
+      "required_tokens": [
+        "PACKING SLIP",
+        "Total Units"
+      ],
+      "expected_fields": [
+        {
+          "name": "invoice_number",
+          "aliases": [
+            "Packing Slip",
+            "Slip No"
+          ],
+          "expected": "PS-2026-18042",
+          "type": "text"
+        },
+        {
+          "name": "total",
+          "aliases": [
+            "Total Units",
+            "Total Qty"
+          ],
+          "expected": "248",
+          "type": "text"
+        }
+      ],
+      "sample_text": "PACIFIC DISTRIBUTION CENTER\nPACKING SLIP\n\nSlip No: PS-2026-18042\nShip Date: 2026-07-14\nOrder Ref: ORD-88210\nShip To: Mountain West Supply\n4411 Commerce Blvd, Boise ID 83702\n\nItem Code    Description          Cartons  Units/Ctn  Total\nSKU-40118    Cleaning Wipes 100pk    4       12        48\nSKU-40221    Hand Sanitizer 32oz    10       20       200\n\nTotal Cartons: 14\nTotal Units: 248\nWeight: 182 lbs\n\nReceived By: _______________  Date: ___________",
+      "modality": "photocopied_hardcopy"
+    },
+    {
+      "id": "contract_service_agreement",
+      "label": "Physically-signed service agreement",
+      "category": "physical_contract",
+      "required_tokens": [
+        "SERVICE AGREEMENT",
+        "Agreement No"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Contract Value",
+            "Total Value"
+          ],
+          "expected": "24000.00",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Contract No",
+            "Agreement No"
+          ],
+          "expected": "SVC-2026-0881",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Start Date",
+            "Effective Date"
+          ],
+          "expected": "2026-08-01",
+          "type": "date"
+        }
+      ],
+      "sample_text": "SERVICE AGREEMENT\n\nAgreement No: SVC-2026-0881\nEffective Date: 2026-08-01\n\nClient: Horizon Medical Group\nService Provider: DataSafe IT Solutions\n\nScope: Managed IT Services including:\n- 24/7 network monitoring\n- Help desk support (unlimited tickets)\n- Monthly security audits\n- Backup and disaster recovery\n\nTerm: 12 months\nMonthly Fee: $2,000.00\nContract Value: $24,000.00\nPayment: Monthly on 1st\n\nClient Signature: _______________  Date: ________\nProvider Signature: _______________  Date: ________",
+      "modality": "signed_contract"
+    },
+    {
+      "id": "contract_vendor_agreement",
+      "label": "Physically-signed vendor agreement",
+      "category": "physical_contract",
+      "required_tokens": [
+        "VENDOR SUPPLY AGREEMENT",
+        "Contract ID"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Annual Value",
+            "Total Value"
+          ],
+          "expected": "48000.00",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Agreement No",
+            "Contract ID"
+          ],
+          "expected": "VND-2026-0144",
+          "type": "text"
+        }
+      ],
+      "sample_text": "VENDOR SUPPLY AGREEMENT\n\nContract ID: VND-2026-0144\nDate: 2026-07-01\n\nBuyer: Northgate Retail Chain Inc.\nVendor: Greenfield Produce Distributors\n\nProducts: Fresh produce, weekly delivery\nDelivery Schedule: Monday and Thursday AM\nMinimum Weekly Order: $800.00\nPayment Terms: Net 14\n\nAnnual Estimated Value: $48,000.00\nTerm: 2026-07-01 to 2027-06-30\nAuto-Renewal: Yes, unless 60-day notice\n\nBuyer: _______________________  Date: ________\nVendor: _______________________  Date: ________",
+      "modality": "signed_contract"
+    },
+    {
+      "id": "contract_nda",
+      "label": "Physically-signed NDA",
+      "category": "physical_contract",
+      "required_tokens": [
+        "NON-DISCLOSURE",
+        "Agreement No"
+      ],
+      "expected_fields": [
+        {
+          "name": "account",
+          "aliases": [
+            "Agreement No",
+            "NDA No"
+          ],
+          "expected": "NDA-2026-0512",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Effective Date",
+            "Date"
+          ],
+          "expected": "2026-07-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "MUTUAL NON-DISCLOSURE AGREEMENT\n\nAgreement No: NDA-2026-0512\nEffective Date: 2026-07-14\n\nParty A: Axiom Software Inc.\nParty B: Pinnacle Capital Partners\n\nThis agreement governs the exchange of confidential\ninformation between the parties for the purpose of\nevaluating a potential business partnership.\n\nConfidential information includes: source code,\nfinancial projections, client lists, and trade secrets.\n\nTerm: 3 years from Effective Date\nGoverning Law: State of California\n\nParty A: _______________________  Date: ________\nParty B: _______________________  Date: ________",
+      "modality": "signed_contract"
+    },
+    {
+      "id": "contract_employment_offer",
+      "label": "Physically-signed employment offer letter",
+      "category": "physical_contract",
+      "required_tokens": [
+        "OFFER LETTER",
+        "Salary"
+      ],
+      "expected_fields": [
+        {
+          "name": "gross_pay",
+          "aliases": [
+            "Salary",
+            "Annual Salary"
+          ],
+          "expected": "85000.00",
+          "type": "money"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Start Date",
+            "First Day"
+          ],
+          "expected": "2026-08-04",
+          "type": "date"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Offer No",
+            "Reference"
+          ],
+          "expected": "OFFER-2026-0441",
+          "type": "text"
+        }
+      ],
+      "sample_text": "EMPLOYMENT OFFER LETTER\n\nOffer No: OFFER-2026-0441\nDate: July 14, 2026\n\nDear Alex Thompson,\n\nWe are pleased to offer you the position of\nSenior Software Engineer at Crestline Technologies.\n\nPosition: Senior Software Engineer\nDepartment: Platform Engineering\nReports To: VP Engineering\nStart Date: 2026-08-04\nAnnual Salary: $85,000.00\nPayroll: Bi-weekly\nBenefits: Health, Dental, Vision, 401k (4% match)\n\nPlease sign and return by 2026-07-21.\n\nAccepted: _______________________  Date: ________\nHR Director: ___________________  Date: ________",
+      "modality": "signed_contract"
+    },
+    {
+      "id": "contract_maintenance_agreement",
+      "label": "Physically-signed maintenance agreement",
+      "category": "physical_contract",
+      "required_tokens": [
+        "MAINTENANCE AGREEMENT",
+        "Contract No"
+      ],
+      "expected_fields": [
+        {
+          "name": "total",
+          "aliases": [
+            "Annual Fee",
+            "Total"
+          ],
+          "expected": "3600.00",
+          "type": "money"
+        },
+        {
+          "name": "account",
+          "aliases": [
+            "Contract No",
+            "Agreement"
+          ],
+          "expected": "MAINT-2026-1188",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "aliases": [
+            "Renewal Date",
+            "Expiration"
+          ],
+          "expected": "2027-07-14",
+          "type": "date"
+        }
+      ],
+      "sample_text": "HVAC MAINTENANCE AGREEMENT\n\nContract No: MAINT-2026-1188\nDate: 2026-07-14\n\nClient: Riverside Office Park LLC\nAddress: 5500 Commerce Drive, Suite 100\nProvider: ClimateControl Pro Services\n\nCoverage: 4 HVAC units, annual maintenance\nVisits Per Year: 4 (quarterly)\nResponse Time SLA: 4 hours emergency\nParts Discount: 20% off list price\n\nAnnual Fee: $3,600.00\nPayment: Annual, due at signing\nRenewal Date: 2027-07-14\n\nClient: _______________________  Date: ________\nProvider: _______________________  Date: ________",
+      "modality": "signed_contract"
+    }
+  ]
+}
