@@ -1,0 +1,22 @@
+{
+  "manifest": "benchmarks\\scanned_fallback_manifest.json",
+  "runs": [
+    {
+      "id": "tonight_scanned_fallback_full",
+      "label": "Tonight scanned fallback strategy run (auto-route + tesseract lanes, no native pdf, no focus)",
+      "run_dir": "artifacts/queue_tonight/tonight_scanned_fallback_full",
+      "broad_variants": "clean,mild_degraded,low_contrast",
+      "focus_variants": "rotated,noisy_scan",
+      "focus_limit": 0,
+      "include_heavy": false,
+      "include_auto_route": true,
+      "auto_route_variants": "clean",
+      "skip_native_pdf": true,
+      "status": "complete",
+      "started_at": "2026-07-16T05:27:35Z",
+      "summary_path": "artifacts\\queue_tonight\\tonight_scanned_fallback_full\\mixed_corpus_summary.json",
+      "finished_at": "2026-07-16T06:36:47Z"
+    }
+  ],
+  "updated_at": "2026-07-16T06:36:47Z"
+}

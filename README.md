@@ -70,23 +70,6 @@ python -m pip install .[ml,engines]
 
 The default install is intended to be portable. OCR97 scales from the hardware it can actually prove is available instead of assuming a specific workstation, GPU, GB10, or remote model endpoint.
 
-## Engine And Provider Routing
-
-OCR97 now exposes a shared engine registry so routing is driven by capability classes rather than hardcoded model-name branches scattered across the stack.
-
-- Canonical runtime engines remain available: `native_pdf_text`, `rapidocr`, `tesseract`, `local_image_best`, `local_image_preprocessed_best`, `gb10_qwen_ocr`, `gb10_got_ocr2`, `gb10_paddleocr_vl`, `mineru2_5`, and `olmocr2`.
-- Generic aliases are also accepted anywhere an engine/model name is requested. Examples:
-  - `native_text` -> `native_pdf_text`
-  - `image_router` -> `local_image_best`
-  - `image_preprocessor` -> `local_image_preprocessed_best`
-  - `semantic_cleanup` -> `gb10_qwen_ocr`
-  - `dense_scan_vision` -> `gb10_got_ocr2`
-  - `layout_vision` -> `gb10_paddleocr_vl`
-  - `structure_parser` -> `mineru2_5`
-  - `linearization` -> `olmocr2`
-
-This keeps older integrations working while letting new callers target OCR capabilities instead of private lane names.
-
 ## Hardware Scaling
 
 OCR97 starts with the portable local path and enables stronger lanes only when the host proves they are available.

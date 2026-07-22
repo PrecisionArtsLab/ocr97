@@ -123,11 +123,62 @@ def _extract_paddleocr(path: Path) -> Dict[str, Any]:
     }
 
 
+def _extract_doctr(path: Path) -> Dict[str, Any]:
+    try:
+        from doctr.io import DocumentFile  # type: ignore
+        from doctr.models import ocr_predictor  # type: ignore
+    except Exception as exc:
+        return {"ok": False, "skip": True, "error": f"doctr_unavailable:{type(exc).__name__}:{exc}"}
+    started = time.perf_counter()
+    try:
+        predictor = globals().get("_DOCTR_PREDICTOR")
+        if predictor is None:
+            predictor = ocr_predictor(pretrained=True)
+            globals()["_DOCTR_PREDICTOR"] = predictor
+        result = predictor(DocumentFile.from_images(str(path)))
+        text = str(result.render() or "")
+    except Exception as exc:
+        return {"ok": False, "skip": True, "error": f"doctr_runtime_unavailable:{type(exc).__name__}:{exc}"}
+    return {"ok": True, "engine": "doctr", "text": text, "latency_ms": round((time.perf_counter() - started) * 1000.0, 2)}
+
+
+def _extract_surya(path: Path) -> Dict[str, Any]:
+    try:
+        from PIL import Image
+        from surya.common.surya.schema import TaskNames  # type: ignore
+        from surya.detection import DetectionPredictor  # type: ignore
+        from surya.foundation import FoundationPredictor  # type: ignore
+        from surya.recognition import RecognitionPredictor  # type: ignore
+    except Exception as exc:
+        return {"ok": False, "skip": True, "error": f"surya_unavailable:{type(exc).__name__}:{exc}"}
+    started = time.perf_counter()
+    try:
+        cached = globals().get("_SURYA_PREDICTORS")
+        if cached is None:
+            foundation = FoundationPredictor()
+            cached = (RecognitionPredictor(foundation), DetectionPredictor())
+            globals()["_SURYA_PREDICTORS"] = cached
+        recognition, detection = cached
+        result = recognition(
+            [Image.open(path).convert("RGB")],
+            task_names=[TaskNames.ocr_with_boxes],
+            det_predictor=detection,
+            math_mode=False,
+            sort_lines=True,
+        )[0]
+        text = "\n".join(str(line.text) for line in result.text_lines if str(line.text).strip())
+    except Exception as exc:
+        return {"ok": False, "skip": True, "error": f"surya_runtime_unavailable:{type(exc).__name__}:{exc}"}
+    return {"ok": True, "engine": "surya", "text": text, "latency_ms": round((time.perf_counter() - started) * 1000.0, 2)}
+
+
 def _engine_registry() -> Dict[str, BaselineFn]:
     return {
         "tesseract": _extract_tesseract,
         "easyocr": _extract_easyocr,
         "paddleocr": _extract_paddleocr,
+        "surya": _extract_surya,
+        "doctr": _extract_doctr,
     }
 
 
@@ -328,7 +379,7 @@ def run_baseline_comparison(
         cases = cases[:max_cases]
     scoped_manifest = {**dict(manifest), "cases": cases}
     fixture_paths = generate_image_fixtures(scoped_manifest, fixture_dir, variant=variant)
-    requested = engines or ["ocr97", "tesseract", "easyocr", "paddleocr"]
+    requested = engines or ["ocr97", "tesseract", "paddleocr", "surya", "doctr"]
     registry = _engine_registry()
     results: List[Dict[str, Any]] = []
     for engine in requested:
@@ -380,7 +431,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--fixture-dir", required=True)
     parser.add_argument("--artifact-dir", required=True)
     parser.add_argument("--variant", default="mild_degraded")
-    parser.add_argument("--engines", default="ocr97,tesseract,easyocr,paddleocr")
+    parser.add_argument("--engines", default="ocr97,tesseract,paddleocr,surya,doctr")
     parser.add_argument("--max-cases", type=int, default=0)
     parser.add_argument("--ocr97-engine", default="local_image_preprocessed_best")
     args = parser.parse_args(argv)

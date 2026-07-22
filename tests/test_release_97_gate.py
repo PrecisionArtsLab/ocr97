@@ -104,3 +104,42 @@ def test_select_cases_supports_source_case_id_alias():
     assert len(selected["cases"]) == 2
     assert selected["cases"][0]["id"] == "invoice_line_items_baseline"
     assert selected["cases"][1]["id"] == "purchase_order_dense"
+
+
+def test_release_grade_prefers_auto_route_and_labels_forced_diagnostics(tmp_path):
+    summary = {
+        "manifest_case_count": 120,
+        "steps": [
+            {
+                "engine": "auto",
+                "benchmark_kind": "end_to_end_auto_route",
+                "summary": {"score_avg": 94, "below_75_cases": 1, "latency_avg_ms": 9000},
+            },
+            {
+                "engine": "native_pdf_text",
+                "benchmark_kind": "forced_engine_diagnostic",
+                "summary": {"score_avg": 100, "below_75_cases": 0, "latency_avg_ms": 400},
+            },
+            {
+                "engine": "tesseract",
+                "benchmark_kind": "forced_engine_diagnostic",
+                "summary": {"score_avg": 70, "below_75_cases": 20, "latency_avg_ms": 1200},
+            },
+        ],
+    }
+    manifest = {
+        "corpus_type": "mixed_real_scans",
+        "cases": [{"id": f"case_{idx}", "category": f"cat_{idx % 12}"} for idx in range(120)],
+    }
+    summary_path = tmp_path / "summary.json"
+    manifest_path = tmp_path / "manifest.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = grade_release(summary_path, manifest_path=manifest_path)
+
+    assert result["views"]["production_router"]["view_kind"] == "end_to_end_auto_route"
+    assert result["views"]["production_router"]["best_score_avg"] == 94
+    assert result["views"]["fallback_lane_stress"]["view_kind"] == "forced_engine_diagnostic"
+    assert result["views"]["all_lanes_stress"]["forced_diagnostic_step_count"] == 2
+    assert result["views"]["all_lanes_stress"]["is_artificial_scenario"] is False

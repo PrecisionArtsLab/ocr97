@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from ocr97.gateway import _append_field_consensus, _classify_content_doc_type, _fast_accept_local_image_candidate, _field_consensus_from_candidates, _native_pdf_text_extract, _preprocessed_image_variants, _receipt_region_retry_candidates, _rescore_local_image_candidates
+from ocr97.gateway import _append_field_consensus, _classify_content_doc_type, _fast_accept_local_image_candidate, _field_consensus_from_candidates, _native_pdf_text_extract, _preprocessed_image_variants, _receipt_region_retry_candidates, _rescore_local_image_candidates, _routing_metadata
 from ocr97.receipt_fields import append_receipt_fields, normalize_receipt_date, receipt_fields_from_candidates
 from ocr97.overnight_benchmark import _field_totals, _score_avg
 from ocr97.sroie_runner import score_sroie_payload
@@ -33,6 +33,29 @@ def test_preprocessing_generates_dynamic_cv2_deskew_candidate(tmp_path):
 
     assert any(str(row.get("label") or "").startswith("deskew_cv2_") for row in variants)
     assert any(row.get("detected_angle") is not None for row in variants)
+
+
+def test_routing_metadata_marks_last_resort_tesseract_and_selected_position():
+    attempts = [
+        {"engine": "local_image_best", "ok": False, "fallback_reason": "empty"},
+        {"engine": "gb10_qwen_ocr", "ok": False, "fallback_reason": "timeout"},
+        {"engine": "tesseract", "ok": True, "quality_score": 0.51},
+    ]
+
+    telemetry = _routing_metadata(
+        attempts=attempts,
+        selected_attempt_index=2,
+        selected_engine="tesseract",
+    )
+
+    assert telemetry["attempted_engines"] == ["local_image_best", "gb10_qwen_ocr", "tesseract"]
+    assert telemetry["selected_attempt_index"] == 2
+    assert telemetry["selected_attempt_number"] == 3
+    assert telemetry["chain_depth"] == 3
+    assert telemetry["fallback_used"] is True
+    assert telemetry["degraded_fallback"] is True
+    assert telemetry["fallback_status"] == "degraded_fallback"
+    assert telemetry["fallback_reason"] == "prior_engines_failed:local_image_best,gb10_qwen_ocr"
 
 
 def test_candidate_scoring_penalizes_numeric_drift_and_rewards_consensus():

@@ -8,6 +8,10 @@ import os
 import re
 import time
 import traceback
+import unicodedata
+import tempfile
+from collections import Counter
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
@@ -19,7 +23,7 @@ from .sroie_runner import SROIE_DATASET, SROIE_SOURCE_PAGE, _download_image, _fe
 
 
 DEFAULT_ENGINES = ["tesseract", "rapidocr", "local_image_preprocessed_best"]
-OPTIONAL_DIRECT_ENGINES = {"easyocr", "paddleocr", "doctr"}
+OPTIONAL_DIRECT_ENGINES = {"easyocr", "paddleocr", "surya", "doctr"}
 
 
 def _utc_now() -> str:
@@ -60,6 +64,53 @@ def _score_avg(results: Iterable[Mapping[str, Any]]) -> float:
     return round(sum(float((row.get("score") or {}).get("score") or 0.0) for row in rows) / float(len(rows)), 2)
 
 
+def _normalize_text(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).lower()
+    return " ".join(re.findall(r"[\w]+(?:[.,:/-][\w]+)*", text, flags=re.UNICODE))
+
+
+def _edit_distance(left: list[str], right: list[str]) -> int:
+    if len(left) < len(right):
+        left, right = right, left
+    previous = list(range(len(right) + 1))
+    for i, token in enumerate(left, 1):
+        current = [i]
+        for j, other in enumerate(right, 1):
+            current.append(min(current[-1] + 1, previous[j] + 1, previous[j - 1] + (token != other)))
+        previous = current
+    return previous[-1]
+
+
+def text_quality_metrics(extracted: str, expected_lines: Iterable[Any]) -> Dict[str, float]:
+    """Score transcript accuracy plus receipt-layout proxies from SROIE line truth."""
+    clean_text = str(extracted or "").split("\n\nReceipt fields:", 1)[0]
+    truth_lines = [_normalize_text(line) for line in expected_lines if _normalize_text(line)]
+    predicted_lines = [_normalize_text(line) for line in clean_text.splitlines() if _normalize_text(line)]
+    truth = " ".join(truth_lines)
+    predicted = " ".join(predicted_lines)
+    truth_chars = list(truth)
+    predicted_chars = list(predicted)
+    truth_words = truth.split()
+    predicted_words = predicted.split()
+    cer = _edit_distance(truth_chars, predicted_chars) / float(max(1, len(truth_chars)))
+    wer = _edit_distance(truth_words, predicted_words) / float(max(1, len(truth_words)))
+    recovered = sum(1 for line in truth_lines if any(SequenceMatcher(None, line, got).ratio() >= 0.80 for got in predicted_lines))
+    line_recall = recovered / float(max(1, len(truth_lines)))
+    order_score = SequenceMatcher(None, truth_lines, predicted_lines).ratio()
+    expected_numbers = Counter(re.findall(r"\d+(?:[.,:/-]\d+)*", truth))
+    actual_numbers = Counter(re.findall(r"\d+(?:[.,:/-]\d+)*", predicted))
+    number_hits = sum(min(count, actual_numbers[token]) for token, count in expected_numbers.items())
+    number_recall = number_hits / float(max(1, sum(expected_numbers.values())))
+    return {
+        "cer": round(cer, 4),
+        "wer": round(wer, 4),
+        "line_recall": round(line_recall, 4),
+        "reading_order_score": round(order_score, 4),
+        "numeric_token_recall": round(number_recall, 4),
+        "layout_table_proxy_score": round(((line_recall + order_score + number_recall) / 3.0) * 100.0, 2),
+    }
+
+
 class OCR97BenchAutopilot:
     """Resumable benchmark coordinator with bounded diagnostic authority."""
 
@@ -93,6 +144,7 @@ class OCR97BenchAutopilot:
         self.report_md_path = self.output_dir / "REPORT.md"
         self._client: Any = None
         self._app: Any = None
+        self._direct_cache: Dict[str, Any] = {}
         self.state: Dict[str, Any] = {}
 
     def prepare(self, *, reset: bool = False) -> None:
@@ -122,7 +174,15 @@ class OCR97BenchAutopilot:
 
     def _save_state(self) -> None:
         self.state["updated_at"] = _utc_now()
-        self.state_path.write_text(json.dumps(self.state, indent=2) + "\n", encoding="utf-8")
+        fd, raw = tempfile.mkstemp(prefix=f".{self.state_path.name}.", suffix=".tmp", dir=str(self.state_path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(self.state, handle, indent=2)
+                handle.write("\n")
+            os.replace(raw, self.state_path)
+        finally:
+            if os.path.exists(raw):
+                os.unlink(raw)
 
     def _event(self, kind: str, message: str, **extra: Any) -> None:
         event = {"ts": _utc_now(), "kind": kind, "message": message, **extra}
@@ -190,7 +250,10 @@ class OCR97BenchAutopilot:
         try:
             import easyocr  # type: ignore
 
-            reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+            reader = self._direct_cache.get("easyocr")
+            if reader is None:
+                reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+                self._direct_cache["easyocr"] = reader
             rows = reader.readtext(str(image_path), detail=0, paragraph=True)
             text = "\n".join(str(item) for item in rows if str(item).strip())
             payload = self._payload_from_text(text, engine="easyocr")
@@ -203,16 +266,16 @@ class OCR97BenchAutopilot:
         try:
             from paddleocr import PaddleOCR  # type: ignore
 
-            ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
-            result = ocr.ocr(str(image_path), cls=True)
-            lines: list[str] = []
-            for page in result or []:
-                for item in page or []:
-                    if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        text_conf = item[1]
-                        if isinstance(text_conf, (list, tuple)) and text_conf:
-                            lines.append(str(text_conf[0]))
-            text = "\n".join(line for line in lines if line.strip())
+            ocr = self._direct_cache.get("paddleocr")
+            if ocr is None:
+                try:
+                    ocr = PaddleOCR(lang="en", use_textline_orientation=True)
+                except Exception:
+                    ocr = PaddleOCR(lang="en")
+                self._direct_cache["paddleocr"] = ocr
+            result = ocr.predict(str(image_path)) if hasattr(ocr, "predict") else ocr.ocr(str(image_path))
+            from .baseline_compare import _flatten_paddle_rows
+            text = _flatten_paddle_rows(result)
             payload = self._payload_from_text(text, engine="paddleocr")
             return {"status_code": 200, "latency_ms": round((time.perf_counter() - started) * 1000.0, 2), "payload": payload}
         except Exception as exc:
@@ -225,13 +288,45 @@ class OCR97BenchAutopilot:
             from doctr.models import ocr_predictor  # type: ignore
 
             doc = DocumentFile.from_images(str(image_path))
-            predictor = ocr_predictor(pretrained=True)
+            predictor = self._direct_cache.get("doctr")
+            if predictor is None:
+                predictor = ocr_predictor(pretrained=True)
+                self._direct_cache["doctr"] = predictor
             result = predictor(doc)
             text = str(result.render() or "")
             payload = self._payload_from_text(text, engine="doctr")
             return {"status_code": 200, "latency_ms": round((time.perf_counter() - started) * 1000.0, 2), "payload": payload}
         except Exception as exc:
             return self._direct_failure("doctr", started, exc)
+
+    def _extract_surya(self, image_path: Path) -> Dict[str, Any]:
+        started = time.perf_counter()
+        try:
+            from PIL import Image
+            from surya.common.surya.schema import TaskNames  # type: ignore
+            from surya.detection import DetectionPredictor  # type: ignore
+            from surya.foundation import FoundationPredictor  # type: ignore
+            from surya.recognition import RecognitionPredictor  # type: ignore
+
+            cached = self._direct_cache.get("surya")
+            if cached is None:
+                foundation = FoundationPredictor()
+                cached = (RecognitionPredictor(foundation), DetectionPredictor())
+                self._direct_cache["surya"] = cached
+            recognition, detection = cached
+            image = Image.open(image_path).convert("RGB")
+            prediction = recognition(
+                [image],
+                task_names=[TaskNames.ocr_with_boxes],
+                det_predictor=detection,
+                math_mode=False,
+                sort_lines=True,
+            )[0]
+            text = "\n".join(str(line.text) for line in prediction.text_lines if str(line.text).strip())
+            payload = self._payload_from_text(text, engine="surya")
+            return {"status_code": 200, "latency_ms": round((time.perf_counter() - started) * 1000.0, 2), "payload": payload}
+        except Exception as exc:
+            return self._direct_failure("surya", started, exc)
 
     def _direct_failure(self, engine: str, started: float, exc: Exception) -> Dict[str, Any]:
         return {
@@ -258,6 +353,8 @@ class OCR97BenchAutopilot:
             return self._extract_easyocr(image_path)
         if engine == "paddleocr":
             return self._extract_paddleocr(image_path)
+        if engine == "surya":
+            return self._extract_surya(image_path)
         if engine == "doctr":
             return self._extract_doctr(image_path)
         return self._extract_gateway(image_path, engine=engine)
@@ -309,6 +406,7 @@ class OCR97BenchAutopilot:
         image = dict(row.get("image") or {})
         source = str(image.get("src") or "")
         expected = dict(row.get("entities") or {})
+        expected_lines = list(row.get("words") or [])
         image_path = self._image_path(row_idx=row_idx, key=key)
         artifact_path = self.artifact_dir / f"{engine}_{row_idx:04d}_{_safe_name(key)}.json"
 
@@ -340,6 +438,7 @@ class OCR97BenchAutopilot:
                 "field_consensus": [],
                 "expected": expected,
                 "score": score,
+                "text_metrics": text_quality_metrics("", expected_lines),
                 "error": str(payload.get("error") or ""),
                 "text": "",
             }
@@ -351,6 +450,7 @@ class OCR97BenchAutopilot:
                 "key": key,
                 "artifact_path": str(artifact_path),
                 "score": score,
+                "text_metrics": text_quality_metrics("", expected_lines),
                 "latency_ms": 0,
                 "ok": False,
             }
@@ -376,6 +476,7 @@ class OCR97BenchAutopilot:
                 extraction = self._extract(image_path, engine=engine)
                 payload = dict(extraction.get("payload") or {})
                 score = score_sroie_payload(payload, expected)
+                metrics = text_quality_metrics(_artifact_payload_text(payload), expected_lines)
                 artifact = {
                     "dataset": SROIE_DATASET,
                     "source_page": SROIE_SOURCE_PAGE,
@@ -399,6 +500,7 @@ class OCR97BenchAutopilot:
                     "field_consensus": list(payload.get("field_consensus") or []),
                     "expected": expected,
                     "score": score,
+                    "text_metrics": metrics,
                     "error": str(payload.get("error") or ""),
                     "text": _artifact_payload_text(payload),
                 }
@@ -410,6 +512,7 @@ class OCR97BenchAutopilot:
                     "key": key,
                     "artifact_path": str(artifact_path),
                     "score": score,
+                    "text_metrics": metrics,
                     "latency_ms": extraction.get("latency_ms"),
                     "ok": bool(payload.get("ok")),
                 }
@@ -444,6 +547,9 @@ class OCR97BenchAutopilot:
             by_engine.setdefault(str(row.get("engine") or ""), []).append(row)
         engine_rows = []
         for engine, rows in sorted(by_engine.items()):
+            metric_rows = [dict(row.get("text_metrics") or {}) for row in rows]
+            latencies = sorted(float(row.get("latency_ms") or 0.0) for row in rows)
+            p95_index = max(0, min(len(latencies) - 1, int(round(0.95 * len(latencies) + 0.4999)) - 1)) if latencies else 0
             engine_rows.append(
                 {
                     "engine": engine,
@@ -452,6 +558,11 @@ class OCR97BenchAutopilot:
                     "failure_count": sum(1 for row in rows if not row.get("ok")),
                     "field_totals": _field_totals(rows),
                     "latency_avg_ms": round(sum(float(row.get("latency_ms") or 0.0) for row in rows) / float(max(1, len(rows))), 2),
+                    "latency_p95_ms": round(latencies[p95_index], 2) if latencies else 0.0,
+                    "text_metrics": {
+                        key: round(sum(float(metric.get(key) or 0.0) for metric in metric_rows) / float(max(1, len(metric_rows))), 4)
+                        for key in ("cer", "wer", "line_recall", "reading_order_score", "numeric_token_recall", "layout_table_proxy_score")
+                    },
                 }
             )
         report = {
@@ -486,15 +597,16 @@ class OCR97BenchAutopilot:
             "",
             "## Engine Summary",
             "",
-            "| Engine | Cases | Score Avg | Avg Latency ms | Field Totals |",
-            "|---|---:|---:|---:|---|",
+            "| Engine | Cases | Score Avg | CER | WER | Layout proxy | Avg / p95 ms | Field Totals |",
+            "|---|---:|---:|---:|---:|---:|---:|---|",
         ]
         for row in list(report.get("engine_results") or []):
             fields = ", ".join(
                 f"{name} {bucket.get('hits')}/{bucket.get('total')} ({bucket.get('accuracy')}%)"
                 for name, bucket in dict(row.get("field_totals") or {}).items()
             )
-            lines.append(f"| `{row.get('engine')}` | {row.get('case_count')} | {row.get('score_avg')} | {row.get('latency_avg_ms')} | {fields} |")
+            metrics = dict(row.get("text_metrics") or {})
+            lines.append(f"| `{row.get('engine')}` | {row.get('case_count')} | {row.get('score_avg')} | {metrics.get('cer')} | {metrics.get('wer')} | {metrics.get('layout_table_proxy_score')} | {row.get('latency_avg_ms')} / {row.get('latency_p95_ms')} | {fields} |")
         lines.extend(["", "## OCR97 Benchmark Authority", ""])
         lines.extend(
             [
@@ -525,7 +637,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--split", default="test", help="SROIE split.")
     parser.add_argument("--offset", type=int, default=0, help="Dataset offset.")
     parser.add_argument("--length", type=int, default=50, help="Number of rows to benchmark.")
-    parser.add_argument("--engines", default=",".join(DEFAULT_ENGINES), help="Comma-separated engines. Gateway engines plus optional easyocr,paddleocr,doctr.")
+    parser.add_argument("--engines", default=",".join(DEFAULT_ENGINES), help="Comma-separated engines. Gateway engines plus optional easyocr,paddleocr,surya,doctr.")
     parser.add_argument("--retries", type=int, default=1, help="Retries per engine/case.")
     parser.add_argument("--reset", action="store_true", help="Start a new run instead of resuming state.json.")
     parser.add_argument("--model-debug", action="store_true", help="Ask a local Ollama model for diagnostic notes after failures.")
@@ -556,4 +668,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

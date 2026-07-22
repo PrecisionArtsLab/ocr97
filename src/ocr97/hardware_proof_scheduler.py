@@ -95,12 +95,7 @@ def _calendar_payload(start: datetime) -> Dict[str, Any]:
 
 def create_calendar_card(start: datetime) -> Dict[str, Any]:
     _ensure_sky_path()
-    try:
-        from Sky.core import calendar_store
-    except Exception as exc:
-        raise RuntimeError(
-            "Sky calendar integration is unavailable. Use --dry-run for standalone OCR97 scheduling payloads."
-        ) from exc
+    from Sky.core import calendar_store
 
     event = calendar_store.create_event(_calendar_payload(start))
     return {"ok": True, "event": event}
@@ -108,12 +103,7 @@ def create_calendar_card(start: datetime) -> Dict[str, Any]:
 
 def find_calendar_slot(start: datetime, *, max_checks: int = 96) -> Tuple[datetime, Dict[str, Any]]:
     _ensure_sky_path()
-    try:
-        from Sky.core import calendar_store
-    except Exception as exc:
-        raise RuntimeError(
-            "Sky calendar integration is unavailable. Use --dry-run for standalone OCR97 scheduling payloads."
-        ) from exc
+    from Sky.core import calendar_store
 
     candidate = start.astimezone(LOCAL_TZ)
     for _ in range(max_checks):
@@ -129,10 +119,7 @@ def schedule(*, start: Optional[datetime] = None, dry_run: bool = False) -> Dict
     if dry_run:
         payload = _calendar_payload(selected)
         return {"ok": True, "scheduled_for_local": selected.isoformat(), "calendar": {"event": payload}}
-    try:
-        selected, result = find_calendar_slot(selected)
-    except RuntimeError as exc:
-        return {"ok": False, "scheduled_for_local": selected.isoformat(), "error": str(exc)}
+    selected, result = find_calendar_slot(selected)
     return {"ok": bool(result.get("ok")), "scheduled_for_local": selected.isoformat(), "calendar": result}
 
 

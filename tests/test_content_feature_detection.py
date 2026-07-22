@@ -12,12 +12,10 @@ from ocr97 import dual_tool
 
 
 def _font():
-    for name in ("arial.ttf", "DejaVuSans.ttf"):
-        try:
-            return ImageFont.truetype(name, 22)
-        except Exception:
-            continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.truetype("arial.ttf", 22)
+    except Exception:
+        return ImageFont.load_default()
 
 
 def _save(img: Image.Image, tmp_path: Path, name: str) -> Path:

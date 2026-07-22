@@ -405,12 +405,7 @@ def update_readme_report(readme_path: Path, payload: Mapping[str, Any]) -> None:
 def record_sky_report(payload: Mapping[str, Any], *, root: Optional[Path] = None) -> Dict[str, Any]:
     if str(ENGINEERING_ROOT) not in sys.path:
         sys.path.insert(0, str(ENGINEERING_ROOT))
-    try:
-        from Sky.services.test_run_reports import record_test_run_report
-    except Exception as exc:
-        raise RuntimeError(
-            "Sky report integration is unavailable. Run with --no-sky-report for standalone OCR97 usage."
-        ) from exc
+    from Sky.services.test_run_reports import record_test_run_report
 
     return record_test_run_report(dict(payload), root=root)
 
@@ -461,10 +456,7 @@ def run_sequence(
         update_readme_report(README_PATH, payload)
     sky_report = {"ok": False, "skipped": True}
     if not no_post:
-        try:
-            sky_report = record_sky_report(payload)
-        except RuntimeError as exc:
-            sky_report = {"ok": False, "skipped": True, "reason": str(exc)}
+        sky_report = record_sky_report(payload)
     return {
         "ok": True,
         "status": payload["status"],
